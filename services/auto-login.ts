@@ -1,0 +1,106 @@
+/**
+ * Auto-login WebView flow per Auto Login WebView Intranet.pdf
+ * 1. Call POST /auth/auto-login/generate
+ * 2. Open returned loginUrl in WebView (with device=app)
+ * 3. Builder /auth/auto does exchange, Firebase login, set-cookies, redirect
+ */
+
+import { CORE_API_BASE, DEFAULT_TENANT_ID } from '@/config/auth';
+import { getStoredAuthContext } from './auth';
+import { refreshAuthContextWithFirebase } from './auth';
+
+const AUTO_LOGIN_GENERATE = `${CORE_API_BASE}/auth/auto-login/generate`;
+
+export interface GenerateAutoLoginParams {
+  email: string;
+  domainUrl: string;
+  redirectUrl?: string;
+  tenantId?: string | null;
+  idToken?: string | null;
+}
+
+export interface GenerateAutoLoginResult {
+  loginUrl: string;
+  token: string;
+  expiresInSeconds: number;
+}
+
+/**
+ * Calls Core API generate endpoint. Returns loginUrl to open in WebView.
+ * Append &device=app per PDF recommendation.
+ */
+export async function generateAutoLoginUrl(
+  params: GenerateAutoLoginParams
+): Promise<GenerateAutoLoginResult> {
+  const { email, domainUrl, redirectUrl = '/', tenantId, idToken } = params;
+
+  const context = await getStoredAuthContext();
+  let resolvedTenantId = tenantId ?? context?.tenantId ?? DEFAULT_TENANT_ID;
+
+  if (!resolvedTenantId) {
+    const refreshed = await refreshAuthContextWithFirebase();
+    resolvedTenantId = refreshed?.tenantId ?? DEFAULT_TENANT_ID ?? null;
+  }
+
+  if (!resolvedTenantId) {
+    throw new Error('Tenant ID não encontrado. Faça login novamente.');
+  }
+
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) {
+    throw new Error('E-mail do usuário é obrigatório.');
+  }
+
+  const trimmedDomain = domainUrl.replace(/\/$/, '');
+  if (!trimmedDomain) {
+    throw new Error('domainUrl é obrigatório.');
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-tenant-id': resolvedTenantId,
+  };
+
+  if (idToken) {
+    headers['Authorization'] = `Bearer ${idToken}`;
+  }
+
+  const res = await fetch(AUTO_LOGIN_GENERATE, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      email: trimmedEmail,
+      domainUrl: trimmedDomain,
+      redirectUrl: redirectUrl.startsWith('/') ? redirectUrl : `/${redirectUrl}`,
+    }),
+  });
+
+  const raw = await res.text();
+  const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+
+  if (!res.ok) {
+    const msg =
+      (typeof body.message === 'string' && body.message) ||
+      (typeof body.error === 'string' && body.error) ||
+      'Falha ao gerar link de auto-login.';
+    throw new Error(msg);
+  }
+
+  const loginUrl = typeof body.loginUrl === 'string' ? body.loginUrl : '';
+  const token = typeof body.token === 'string' ? body.token : '';
+  const expiresInSeconds = typeof body.expiresInSeconds === 'number' ? body.expiresInSeconds : 300;
+
+  if (!loginUrl || !token) {
+    throw new Error('Resposta inválida do servidor de auto-login.');
+  }
+
+  const urlWithDevice = loginUrl.includes('?')
+    ? `${loginUrl}${loginUrl.includes('device=') ? '' : '&device=app'}`
+    : `${loginUrl}?device=app`;
+
+  return {
+    loginUrl: urlWithDevice,
+    token,
+    expiresInSeconds,
+  };
+}

@@ -1,0 +1,11 @@
+{
+  "name": "hywork-functions",
+  "description": "Cloud Functions for HyWork (Microsoft auth token exchange)",
+  "main": "index.js",
+  "engines": { "node": "18" },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}

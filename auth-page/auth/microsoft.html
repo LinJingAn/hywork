@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Entrar com Microsoft</title>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .msg { color: #627D98; }
+  </style>
+</head>
+<body>
+  <p class="msg" id="msg">Redirecionando para Microsoft…</p>
+  <script>
+    var firebaseConfig = {
+      apiKey: 'AIzaSyCXX8I21MDAN2bFbJ0jcTcagjpL8cxrq2g',
+      authDomain: 'cloud---homolog.firebaseapp.com',
+      projectId: 'cloud---homolog',
+      storageBucket: 'cloud---homolog.firebasestorage.app',
+      messagingSenderId: '807635388333',
+      appId: '1:807635388333:web:c200dab7ab043b50780324'
+    };
+    firebase.initializeApp(firebaseConfig);
+    var auth = firebase.auth();
+
+    var EXCHANGE_TOKEN_URL = 'https://us-central1-cloud---homolog.cloudfunctions.net/exchangeToken';
+
+    auth.getRedirectResult().then(function(result) {
+      if (result.user) {
+        result.user.getIdToken().then(function(idToken) {
+          fetch(EXCHANGE_TOKEN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken: idToken })
+          }).then(function(res) { return res.json(); }).then(function(data) {
+            var token = data.customToken || data.token;
+            if (token) {
+              window.location.href = 'hywork://auth-success?token=' + encodeURIComponent(token);
+            } else {
+              document.getElementById('msg').textContent = 'Erro ao obter token. Tente novamente.';
+            }
+          }).catch(function() {
+            document.getElementById('msg').textContent = 'Erro de conexão. Verifique se a Cloud Function está publicada.';
+          });
+        });
+        return;
+      }
+      var provider = new firebase.auth.OAuthProvider('microsoft.com');
+      auth.signInWithRedirect(provider);
+    }).catch(function(err) {
+      document.getElementById('msg').textContent = 'Erro: ' + (err.message || 'Tente novamente.');
+    });
+  </script>
+</body>
+</html>
