@@ -1,7 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useNotifications } from '@/contexts/notifications-context';
 
-type NotificationType = 'announcement' | 'comment' | 'birthday' | 'post';
+type NotificationType = 'news' | 'announcement' | 'comment' | 'birthday' | 'post';
 
 interface NotificationItem {
   id: string;
@@ -32,71 +31,109 @@ interface NotificationItem {
   avatarColors?: string[];
 }
 
-function NotificationRow({ item }: { item: NotificationItem }) {
-  return (
-    <View style={styles.notifCard}>
-      <View style={styles.notifRow}>
-        <View style={styles.notifContent}>
-          <View style={styles.notifHeader}>
-            <View style={[styles.notifAvatar, { backgroundColor: item.authorColor }]}>
-              <Text style={styles.notifAvatarText}>
-                {item.authorName?.charAt(0)?.toUpperCase() ?? '?'}
-              </Text>
-            </View>
-            <View style={styles.notifTitleBlock}>
-              <Text style={styles.notifAuthor}>{item.authorName}</Text>
-              <Text style={styles.notifSubtitle}>
-                {item.subtitle}
-                <Text style={styles.notifSubtitleBold}>{item.subtitleBold}</Text>
-                {item.birthdayCount != null && (
-                  <Text style={styles.notifSubtitleBold}>
-                    {' '}e de outras {item.birthdayCount} pessoas
-                  </Text>
-                )}
-              </Text>
-            </View>
-          </View>
+function formatRelativeTime(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'agora mesmo';
+    if (diffMins < 60) return `há ${diffMins} minuto${diffMins !== 1 ? 's' : ''}`;
+    if (diffHours < 24) return `há cerca de ${diffHours} hora${diffHours !== 1 ? 's' : ''}`;
+    if (diffDays === 1) return 'há 1 dia';
+    return `há ${diffDays} dias`;
+  } catch {
+    return dateStr;
+  }
+}
 
-          {item.card && (
-            <View style={styles.card}>
-              <View style={styles.cardImagePlaceholder} />
-              <View style={styles.cardOverlay}>
-                <Text style={styles.cardTitle}>{item.card.title}</Text>
-                <Text style={styles.cardDate}>{item.card.date}</Text>
-                <Text style={styles.cardQuote}>{item.card.quote}</Text>
-              </View>
-            </View>
+async function markNotificationRead(notificationId: string): Promise<void> {
+  const { getStoredAuthContext } = await import('@/services/auth');
+  const { CORE_API_BASE, DEFAULT_TENANT_ID } = await import('@/config/auth');
+
+  const context = await getStoredAuthContext();
+  if (!context?.token) return;
+
+  const tenantId = context.tenantId || DEFAULT_TENANT_ID;
+  const collabId = context.collabId || null;
+  if (!tenantId || !collabId) return;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${context.token}`,
+    'Content-Type': 'application/json',
+    'x-tenant-id': tenantId,
+    'x-collab-id': collabId,
+  };
+
+  try {
+    await fetch(`${CORE_API_BASE}/notifications/open`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ notification_id: notificationId }),
+    });
+  } catch {
+    if (__DEV__) console.warn('[Notifications] Failed to mark notification as read:', notificationId);
+  }
+}
+
+function NotificationRow({
+  item,
+  onPress,
+}: {
+  item: NotificationItem;
+  onPress: (id: string) => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.notifCard,
+        pressed && styles.notifCardPressed,
+      ]}
+      onPress={() => onPress(item.id)}
+    >
+      <View style={styles.notifRow}>
+        <View style={styles.checkmarkWrap}>
+          {item.unread ? (
+            <View style={styles.unreadDot} />
+          ) : (
+            <MaterialIcons name="check" size={18} color="#94A3B8" />
           )}
+        </View>
+
+        <View style={styles.notifContent}>
+          <Text style={[styles.notifAuthor, item.unread && styles.notifAuthorUnread]}>
+            {item.authorName}
+          </Text>
+          <Text style={styles.notifSubtitle} numberOfLines={2}>
+            {item.subtitle}
+            {item.subtitleBold ? (
+              <Text style={styles.notifSubtitleBold}>{item.subtitleBold}</Text>
+            ) : null}
+            {item.birthdayCount != null && (
+              <Text style={styles.notifSubtitleBold}>
+                {' '}e de outras {item.birthdayCount} pessoas
+              </Text>
+            )}
+          </Text>
 
           {item.type === 'birthday' && item.avatarColors && (
             <View style={styles.birthdayAvatars}>
               {item.avatarColors.map((color, i) => (
-                <View
-                  key={i}
-                  style={[styles.birthdayAvatar, { backgroundColor: color }]}
-                >
-                  <Text style={styles.birthdayAvatarText}>
-                    {['A', 'B', 'C', 'D'][i]}
-                  </Text>
+                <View key={i} style={[styles.birthdayAvatar, { backgroundColor: color }]}>
+                  <Text style={styles.birthdayAvatarText}>{['A', 'B', 'C', 'D'][i]}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          {item.message ? (
-            <View style={styles.messageContainer}>
-              <Text style={styles.notifMessage} numberOfLines={2}>
-                {item.message}
-              </Text>
-            </View>
-          ) : null}
-
           {item.timeAgo ? (
-            <Text style={styles.notifTime}>{item.timeAgo}</Text>
+            <Text style={styles.notifTime}>{formatRelativeTime(item.timeAgo)}</Text>
           ) : null}
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -132,10 +169,23 @@ export default function NotificationsScreen() {
     loadNotifications();
   }, [loadNotifications]);
 
+  const handleNotificationPress = useCallback(
+    async (id: string) => {
+      const item = notifications.find((n) => n.id === id);
+      if (!item) return;
+      if (item.unread) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
+        );
+        await markNotificationRead(id);
+        refreshUnreadCount();
+      }
+    },
+    [notifications, refreshUnreadCount]
+  );
+
   async function handleMarkAllRead() {
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, unread: false }))
-    );
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
     try {
       const { getStoredAuthContext } = await import('@/services/auth');
       const { CORE_API_BASE, DEFAULT_TENANT_ID } = await import('@/config/auth');
@@ -149,10 +199,7 @@ export default function NotificationsScreen() {
         'x-tenant-id': tenantId,
       };
       if (context.collabId) headers['x-collab-id'] = context.collabId;
-      await fetch(`${CORE_API_BASE}/notifications/read-all`, {
-        method: 'PUT',
-        headers,
-      });
+      await fetch(`${CORE_API_BASE}/notifications/read-all`, { method: 'PUT', headers });
       refreshUnreadCount();
     } catch {
       if (__DEV__) console.warn('[Notifications] Failed to mark all as read on backend');
@@ -163,15 +210,14 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
+
+          {/* Back button — left */}
           <Pressable
             style={styles.backButton}
             onPress={() => {
               try {
-                if (router.canGoBack()) {
-                  router.back();
-                } else {
-                  router.replace('/success');
-                }
+                if (router.canGoBack()) router.back();
+                else router.replace('/success');
               } catch {
                 router.replace('/success');
               }
@@ -180,18 +226,26 @@ export default function NotificationsScreen() {
           >
             <MaterialIcons name="arrow-back" size={24} color="#1E293B" />
           </Pressable>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Notificação</Text>
-            {unreadCount > 0 && (
+
+          {/* Title — center */}
+          <Text style={styles.headerTitle}>Notificação</Text>
+
+          {/* ✅ Unread count badge — top right */}
+          <View style={styles.badgeWrap}>
+            {unreadCount > 0 ? (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </Text>
               </View>
+            ) : (
+              // Keep space so title stays centered when no badge
+              <View style={styles.badgePlaceholder} />
             )}
           </View>
-          <View style={styles.backButton} />
+
         </View>
+
         {unreadCount > 0 && (
           <Pressable style={styles.markReadWrap} hitSlop={8} onPress={handleMarkAllRead}>
             <Text style={styles.markReadText}>Marcar todas como lido</Text>
@@ -225,8 +279,11 @@ export default function NotificationsScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {notifications.map((item) => (
-            <NotificationRow key={item.id} item={item} />
+          {notifications.map((item, index) => (
+            <View key={item.id}>
+              <NotificationRow item={item} onPress={handleNotificationPress} />
+              {index < notifications.length - 1 && <View style={styles.divider} />}
+            </View>
           ))}
         </ScrollView>
       )}
@@ -239,25 +296,25 @@ async function fetchNotifications(): Promise<NotificationItem[]> {
   const { CORE_API_BASE, DEFAULT_TENANT_ID } = await import('@/config/auth');
 
   const context = await getStoredAuthContext();
-  if (!context?.token) {
-    return [];
-  }
+  if (!context?.token) return [];
 
   const tenantId = context.tenantId || DEFAULT_TENANT_ID;
-  if (!tenantId) {
-    return [];
-  }
+  const collabId = context.collabId || null;
+  if (!tenantId || !collabId) return [];
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${context.token}`,
     'Content-Type': 'application/json',
     'x-tenant-id': tenantId,
+    'x-collab-id': collabId,
   };
-  if (context.collabId) headers['x-collab-id'] = context.collabId;
 
   let res: Response;
   try {
-    res = await fetch(`${CORE_API_BASE}/notifications?page=1&limit=20`, { headers });
+    res = await fetch(`${CORE_API_BASE}/notifications?page=1&limit=20`, {
+      method: 'GET',
+      headers,
+    });
   } catch {
     throw new Error('Verifique sua conexão e tente novamente.');
   }
@@ -267,49 +324,45 @@ async function fetchNotifications(): Promise<NotificationItem[]> {
     const hasBody = res.headers.get('content-type')?.includes('json');
     const body = hasBody ? await res.json().catch(() => ({})) : {};
     const message = body?.message ?? body?.error ?? null;
-    throw new Error(
-      typeof message === 'string' ? message : 'Falha ao carregar notificações.'
-    );
+    throw new Error(typeof message === 'string' ? message : 'Falha ao carregar notificações.');
   }
 
   const data = await res.json();
-  return normalizeNotifications(data);
+  const list = Array.isArray(data) ? data : (data?.notifications ?? []);
+  return normalizeNotifications(list);
 }
 
 function normalizeNotifications(data: unknown): NotificationItem[] {
   if (!Array.isArray(data)) return [];
 
-  const items: NotificationItem[] = [];
   const avatarColors = ['#5B9BD5', '#E06C75', '#D4A373', '#7FB685', '#A855F7'];
+  const items: NotificationItem[] = [];
 
   for (let i = 0; i < data.length; i++) {
     const raw = data[i] as Record<string, unknown>;
     const id = String(raw.id ?? raw._id ?? i);
-    const authorName = String(raw.authorName ?? raw.author_name ?? raw.from?.name ?? '');
     const colorIndex = i % avatarColors.length;
+
+    const title = String(raw.title ?? '');
+    const body = String(raw.body ?? raw.message ?? '');
+    const isRead = Boolean(raw.is_read ?? raw.read ?? false);
+    const createdAt = String(raw.createdAt ?? raw.sent_at ?? '');
+    const type = String(raw.type ?? 'post').toLowerCase() as NotificationType;
 
     items.push({
       id,
-      type: (raw.type as NotificationType) ?? 'post',
-      unread: Boolean(raw.unread ?? raw.read === false),
-      authorName: authorName || '—',
-      authorColor: (raw.authorColor as string) ?? avatarColors[colorIndex],
-      subtitle: String(raw.subtitle ?? ''),
-      subtitleBold: raw.subtitleBold ? String(raw.subtitleBold) : undefined,
-      card: raw.card && typeof raw.card === 'object'
-        ? {
-            title: String((raw.card as Record<string, unknown>).title ?? ''),
-            date: String((raw.card as Record<string, unknown>).date ?? ''),
-            quote: String((raw.card as Record<string, unknown>).quote ?? ''),
-          }
-        : undefined,
-      message: raw.message ? String(raw.message) : undefined,
-      timeAgo: String(raw.timeAgo ?? raw.createdAt ?? ''),
-      birthdayNames: raw.birthdayNames ? String(raw.birthdayNames) : undefined,
-      birthdayCount: typeof raw.birthdayCount === 'number' ? raw.birthdayCount : undefined,
-      avatarColors: Array.isArray(raw.avatarColors)
-        ? (raw.avatarColors as string[])
-        : avatarColors,
+      type: type === 'news' ? 'announcement' : (type as NotificationType),
+      unread: !isRead,
+      authorName: title || '—',
+      authorColor: avatarColors[colorIndex],
+      subtitle: body,
+      subtitleBold: undefined,
+      message: undefined,
+      timeAgo: createdAt,
+      card: undefined,
+      birthdayNames: undefined,
+      birthdayCount: undefined,
+      avatarColors: undefined,
     });
   }
 
@@ -337,29 +390,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#1E293B',
+    // ✅ Centered between back button and badge
+    flex: 1,
+    textAlign: 'center',
+  },
+
+  // ✅ Right-side badge container — same width as backButton to keep title centered
+  badgeWrap: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badge: {
-    backgroundColor: '#94A3B8',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 12,
-    minWidth: 20,
+    minWidth: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   badgeText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
+  // Keeps layout balanced when badge is hidden
+  badgePlaceholder: {
+    width: 24,
+    height: 24,
+  },
+
   markReadWrap: {
     paddingVertical: 8,
     alignItems: 'center',
@@ -369,125 +435,71 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#F97316',
   },
-
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
     paddingBottom: 32,
-    paddingTop: 12,
   },
   notifCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
     paddingVertical: 16,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
+    paddingHorizontal: 20,
   },
-
+  notifCardPressed: {
+    backgroundColor: '#F8FAFC',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginHorizontal: 20,
+  },
   notifRow: {
-    flexDirection: 'row',
-  },
-  notifContent: {
-    flex: 1,
-  },
-  notifHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  notifAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  checkmarkWrap: {
+    width: 24,
+    marginTop: 2,
+    marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notifAvatarText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 16,
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#F97316',
   },
-  notifTitleBlock: {
+  notifContent: {
     flex: 1,
-    marginLeft: 12,
   },
   notifAuthor: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1E293B',
   },
+  notifAuthorUnread: {
+    color: '#0F172A',
+  },
   notifSubtitle: {
     fontSize: 14,
     color: '#64748B',
     marginTop: 2,
+    lineHeight: 20,
   },
   notifSubtitleBold: {
     fontWeight: '700',
     color: '#64748B',
   },
-  messageContainer: {
-    marginTop: 16,
-    marginLeft: 52,
-    paddingLeft: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#F97316',
-  },
-  notifMessage: {
-    fontSize: 14,
-    color: '#94A3B8',
-    lineHeight: 20,
-  },
   notifTime: {
     fontSize: 12,
     color: '#94A3B8',
-    marginTop: 6,
-    marginLeft: 52,
-  },
-
-  card: {
-    marginTop: 12,
-    marginLeft: 52,
-    borderRadius: 12,
-    overflow: 'hidden',
-    height: 100,
-    backgroundColor: '#1E293B',
-  },
-  cardImagePlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#334155',
-  },
-  cardOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    padding: 12,
-    justifyContent: 'flex-end',
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  cardDate: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
-  },
-  cardQuote: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.7)',
     marginTop: 4,
-    alignSelf: 'flex-end',
   },
-
   birthdayAvatars: {
     flexDirection: 'row',
     marginTop: 10,
-    marginLeft: 52,
     gap: 8,
   },
   birthdayAvatar: {
@@ -502,7 +514,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-
   centered: {
     flex: 1,
     alignItems: 'center',

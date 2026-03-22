@@ -5,11 +5,14 @@
  * 3. Builder /auth/auto does exchange, Firebase login, set-cookies, redirect
  */
 
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
+
 import { CORE_API_BASE, DEFAULT_TENANT_ID } from '@/config/auth';
-import { getStoredAuthContext } from './auth';
-import { refreshAuthContextWithFirebase } from './auth';
+import { getStoredAuthContext, refreshAuthContextWithFirebase } from './auth';
 
 const AUTO_LOGIN_GENERATE = `${CORE_API_BASE}/auth/auto-login/generate`;
+const AUTO_LOGIN_REGISTER_DEVICE = `${CORE_API_BASE}/notifications/device-token`;
 
 export interface GenerateAutoLoginParams {
   email: string;
@@ -25,6 +28,24 @@ export interface GenerateAutoLoginResult {
   expiresInSeconds: number;
 }
 
+// ✅ Returns 'ANDROID' | 'IOS' | 'WEB' based on actual runtime platform
+function getDevicePlatform(): string {
+  if (Platform.OS === 'android') return 'ANDROID';
+  if (Platform.OS === 'ios') return 'IOS';
+  return 'WEB';
+}
+
+// ✅ Returns real device model name e.g. "Pixel 6", "iPhone 14 Pro"
+// Falls back to a safe string if running in simulator or value is unavailable
+function getDeviceModel(): string {
+  return Device.modelName ?? Device.deviceName ?? 'Unknown';
+}
+
+// ✅ Returns OS version string e.g. "14", "17.2"
+function getOsVersion(): string {
+  return Device.osVersion ?? Platform.Version?.toString() ?? 'Unknown';
+}
+
 /**
  * Calls Core API generate endpoint. Returns loginUrl to open in WebView.
  * Append &device=app per PDF recommendation.
@@ -36,6 +57,7 @@ export async function generateAutoLoginUrl(
 
   const context = await getStoredAuthContext();
   let resolvedTenantId = tenantId ?? context?.tenantId ?? DEFAULT_TENANT_ID;
+  let resolvedCollabId = context?.collabId ?? '';
 
   if (!resolvedTenantId) {
     const refreshed = await refreshAuthContextWithFirebase();
@@ -97,6 +119,24 @@ export async function generateAutoLoginUrl(
   const urlWithDevice = loginUrl.includes('?')
     ? `${loginUrl}${loginUrl.includes('device=') ? '' : '&device=app'}`
     : `${loginUrl}?device=app`;
+
+  await fetch(AUTO_LOGIN_REGISTER_DEVICE, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'x-tenant-id': resolvedTenantId,
+      'x-collab-id': resolvedCollabId,
+    },
+    body: JSON.stringify({
+      token,
+      platform: getDevicePlatform(),   // ✅ 'ANDROID' | 'IOS' | 'WEB'
+      device_info: {
+        model: getDeviceModel(),        // ✅ e.g. "Pixel 6", "iPhone 14 Pro"
+        osVersion: getOsVersion(),      // ✅ e.g. "14", "17.2"
+      },
+    }),
+  });
 
   return {
     loginUrl: urlWithDevice,

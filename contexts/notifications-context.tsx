@@ -31,6 +31,7 @@ export function NotificationsProvider({
         setUnreadCount(0);
         return;
       }
+
       let tenantId = context.tenantId ?? DEFAULT_TENANT_ID;
       if (!tenantId) {
         const refreshed = await refreshAuthContextWithFirebase();
@@ -40,22 +41,34 @@ export function NotificationsProvider({
         setUnreadCount(0);
         return;
       }
+
       const headers: Record<string, string> = {
         Authorization: `Bearer ${context.token}`,
         'x-tenant-id': tenantId,
       };
       if (context.collabId) headers['x-collab-id'] = context.collabId;
+
       const res = await fetch(`${CORE_API_BASE}/notifications`, { headers });
       if (!res.ok) {
         if (res.status === 404) setUnreadCount(0);
         return;
       }
+
       const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      const count = list.filter(
-        (n: { unread?: boolean; read?: boolean }) =>
-          n.unread === true || n.read === false
-      ).length;
+
+      // ✅ Unwrap paginated envelope: { notifications: [...] }
+      const list: unknown[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.notifications)
+          ? data.notifications
+          : [];
+
+      // ✅ API uses `is_read: true` for read, so unread = is_read is false
+      const count = list.filter((n) => {
+        const item = n as Record<string, unknown>;
+        return item.is_read === false;
+      }).length;
+
       setUnreadCount(count);
     } catch {
       setUnreadCount(0);

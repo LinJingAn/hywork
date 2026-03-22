@@ -5,9 +5,9 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { auth } from '@/config/firebase';
 import { useNotifications } from '@/contexts/notifications-context';
 import { useProfileName } from '@/contexts/profile-name-context';
-import { auth } from '@/config/firebase';
 
 const GREETING_ROW_HEIGHT = 62;
 
@@ -30,8 +30,13 @@ interface GreetingBarProps {
 }
 
 export function GreetingBar({ onDotPress, displayName, unreadNotificationCount, showBackButton }: GreetingBarProps) {
-  const { unreadCount } = useNotifications();
+  const { unreadCount, refreshUnreadCount } = useNotifications();
   const { profileName, refreshProfileName } = useProfileName();
+
+  // ✅ Fetch unread count on mount so badge appears immediately
+  useEffect(() => {
+    refreshUnreadCount();
+  }, [refreshUnreadCount]);
 
   useEffect(() => {
     if (!profileName?.trim() && auth.currentUser) {
@@ -40,6 +45,7 @@ export function GreetingBar({ onDotPress, displayName, unreadNotificationCount, 
       return () => clearTimeout(t);
     }
   }, [profileName, refreshProfileName]);
+
   const badgeCount = unreadNotificationCount ?? unreadCount;
   const passedName = displayName?.trim();
   const contextName = profileName?.trim();

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as WebBrowser from 'expo-web-browser';
 import {
   OAuthProvider,
   User,
@@ -8,10 +9,9 @@ import {
   signInWithPopup,
 } from 'firebase/auth';
 import { Platform } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 
-import { auth } from '@/config/firebase';
 import { AUTH_API, MICROSOFT_AUTH_PAGE_URL } from '@/config/auth';
+import { auth } from '@/config/firebase';
 
 const AUTH_TOKEN_KEY = '@hywork/auth_token';
 const AUTH_TENANT_ID_KEY = '@hywork/tenant_id';
@@ -185,6 +185,12 @@ function parseAuthApiResponse(body: unknown): ParsedAuthApiResponse {
       ? (b.body as Record<string, unknown>)
       : undefined);
 
+  // ✅ Extract nested `data.user` object
+  const dataUser =
+    data?.user && typeof data.user === 'object'
+      ? (data.user as Record<string, unknown>)
+      : undefined;
+
   const token =
     (b.accessToken as string | undefined) ??
     (b.token as string | undefined) ??
@@ -194,31 +200,14 @@ function parseAuthApiResponse(body: unknown): ParsedAuthApiResponse {
     (data?.access_token as string | undefined) ??
     null;
 
+  // ✅ Also search inside data.user for tenantId
   let tenantId =
     findStringField(b, ['tenantId', 'tenant_id', 'tenant']) ??
-    findStringField(data, ['tenantId', 'tenant_id', 'tenant']);
-
-  if (!tenantId && typeof b.tenant === 'string' && b.tenant.trim()) {
-    tenantId = b.tenant.trim();
-  }
-  if (!tenantId && data && typeof (data as Record<string, unknown>).tenant === 'string') {
-    const t = (data as Record<string, string>).tenant;
-    if (t?.trim()) tenantId = t.trim();
-  }
+    findStringField(data, ['tenantId', 'tenant_id', 'tenant']) ??
+    findStringField(dataUser, ['tenantId', 'tenant_id', 'tenant']);
 
   if (!tenantId) {
-    const tenant =
-      (b.tenant && typeof b.tenant === 'object'
-        ? (b.tenant as Record<string, unknown>)
-        : undefined) ||
-      (data?.tenant && typeof data.tenant === 'object'
-        ? (data.tenant as Record<string, unknown>)
-        : undefined);
-    tenantId = findStringField(tenant, ['id', 'tenantId', 'tenant_id']);
-  }
-
-  if (!tenantId) {
-    for (const source of [b, data]) {
+    for (const source of [b, data, dataUser]) {
       if (!source) continue;
       for (const key of Object.keys(source)) {
         if (!/tenant/i.test(key)) continue;
@@ -232,9 +221,17 @@ function parseAuthApiResponse(body: unknown): ParsedAuthApiResponse {
     }
   }
 
+  // ✅ Also search inside data.user.collab for collabId
+  const dataUserCollab =
+    dataUser?.collab && typeof dataUser.collab === 'object'
+      ? (dataUser.collab as Record<string, unknown>)
+      : undefined;
+
   let collabId =
     findStringField(b, ['collabId', 'collaboratorId', 'collab_id', 'collaborator_id']) ??
-    findStringField(data, ['collabId', 'collaboratorId', 'collab_id', 'collaborator_id']);
+    findStringField(data, ['collabId', 'collaboratorId', 'collab_id', 'collaborator_id']) ??
+    findStringField(dataUser, ['collabId', 'collaboratorId', 'collab_id', 'collaborator_id']) ??
+    findStringField(dataUserCollab, ['id', 'collabId', 'collab_id']);  // ✅ data.user.collab.id
 
   if (!collabId) {
     const collab =
@@ -265,7 +262,8 @@ function parseAuthApiResponse(body: unknown): ParsedAuthApiResponse {
 
   const userId =
     findStringField(b, ['userId', 'user_id']) ??
-    findStringField(data, ['userId', 'user_id']);
+    findStringField(data, ['userId', 'user_id']) ??
+    findStringField(dataUser, ['uid', 'userId', 'user_id']);  // ✅ data.user.uid
 
   return {
     token,
