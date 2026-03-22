@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "807635388333",
+    "project_id": "cloud---homolog",
+    "storage_bucket": "cloud---homolog.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807635388333:android:3c1cb2ca5af72c78780324",
+        "android_client_info": {
+          "package_name": "hywork.cloud"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "807635388333-9hs826bcjrpai306jc0mrg75eiv4muo6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC74ZOsVfq3_5x0rifOq1F7D5pk4msHcrQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "807635388333-9hs826bcjrpai306jc0mrg75eiv4muo6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "807635388333-bekali60voud50ueb926heortg37m5ss.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "hywork.cloud"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

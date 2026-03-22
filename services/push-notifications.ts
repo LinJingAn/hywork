@@ -1,7 +1,3 @@
-/**
- * Push notifications service per FCM React Native Integration Documentation.
- * Requests permission, gets FCM token, registers with backend.
- */
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -20,7 +16,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/** Create default notification channel for Android 8+ */
 if (Platform.OS === 'android') {
   Notifications.setNotificationChannelAsync('default', {
     name: 'HyWork',
@@ -28,6 +23,22 @@ if (Platform.OS === 'android') {
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#F97316',
   });
+}
+
+function getNotificationPlatform(): 'ANDROID' | 'IOS' | 'WEB' {
+  if (Platform.OS === 'android') return 'ANDROID';
+  if (Platform.OS === 'ios') return 'IOS';
+  return 'WEB';
+}
+
+function getDeviceInfo(): Record<string, string | null> {
+  return {
+    brand: Device.brand ?? null,
+    modelName: Device.modelName ?? null,
+    osName: Device.osName ?? null,
+    osVersion: Device.osVersion ?? null,
+    deviceName: Device.deviceName ?? null,
+  };
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -67,7 +78,9 @@ export async function registerTokenWithBackend(token: string): Promise<void> {
   }
   if (!tenantId) return;
 
-  const platform = 'MOBILE';
+  const platform = getNotificationPlatform();
+  const device_info = getDeviceInfo();
+
   const headers: Record<string, string> = {
     Authorization: `Bearer ${context.token}`,
     'Content-Type': 'application/json',
@@ -78,7 +91,7 @@ export async function registerTokenWithBackend(token: string): Promise<void> {
   const res = await fetch(DEVICE_TOKEN_ENDPOINT, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ token, platform }),
+    body: JSON.stringify({ token, platform, device_info }),
   });
   if (!res.ok && __DEV__) {
     console.warn('[Push] registerToken failed:', res.status, await res.text());

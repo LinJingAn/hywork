@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pritam2002.HyWork"
+      "bundleIdentifier": "hywork.cloud"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +21,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.pritam2002.HyWork"
+      "package": "hywork.cloud",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",

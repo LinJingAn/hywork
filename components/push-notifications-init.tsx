@@ -1,7 +1,3 @@
-/**
- * Initializes push notifications when user is logged in.
- * Requests permission, registers token, handles notification tap (deep link).
- */
 import { router } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
@@ -14,6 +10,7 @@ import {
   registerTokenWithBackend,
   requestNotificationPermission,
 } from '@/services/push-notifications';
+import { registerBackgroundNotificationTask } from '@/services/background-notifications';
 
 export type OnNotificationReceived = () => void;
 
@@ -33,6 +30,8 @@ export function PushNotificationsInit({
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
+    registerBackgroundNotificationTask();
+
     function setup(user: { email?: string | null } | null) {
       listenerRef.current?.remove();
       responseRef.current?.remove();
@@ -46,35 +45,55 @@ export function PushNotificationsInit({
         if (token) return registerTokenWithBackend(token);
       });
 
-      // Re-register when FCM token is renewed
       tokenRefreshRef.current = Notifications.addPushTokenListener(({ data }) => {
         if (data) registerTokenWithBackend(data);
       });
 
-      listenerRef.current = Notifications.addNotificationReceivedListener(() => {
-        onReceivedRef.current?.();
-      });
+      listenerRef.current = Notifications.addNotificationReceivedListener(
+        (notification) => {
+          onReceivedRef.current?.();
+          if (__DEV__) {
+            console.log(
+              '[Push] Foreground notification:',
+              notification.request.content.title,
+              notification.request.content.body
+            );
+          }
+        }
+      );
 
       responseRef.current = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response.notification.request.content.data as Record<
-          string,
-          unknown
-        >;
-        onReceivedRef.current?.();
-        const route = data?.route ?? data?.screen;
-        if (typeof route === 'string' && route.startsWith('/')) {
-          router.push(route as never);
-        } else if (data?.type === 'news' && data?.newsId) {
-          router.push({
-            pathname: '/notifications',
-            params: { highlight: String(data.newsId) },
-          } as never);
-        } else {
-          router.push('/notifications');
+        (response) => {
+          const data = response.notification.request.content.data as Record<
+            string,
+            unknown
+          >;
+          onReceivedRef.current?.();
+
+          const url = data?.url;
+          if (typeof url === 'string' && url.startsWith('/')) {
+            router.push(url as never);
+            return;
+          }
+
+          const route = data?.route ?? data?.screen;
+          if (typeof route === 'string' && route.startsWith('/')) {
+            router.push(route as never);
+          } else if (data?.type === 'news' && data?.newsId) {
+            router.push({
+              pathname: '/notifications',
+              params: { highlight: String(data.newsId) },
+            } as never);
+          } else if (data?.slug) {
+            router.push({
+              pathname: '/contents',
+              params: { slug: String(data.slug) },
+            } as never);
+          } else {
+            router.push('/notifications');
+          }
         }
-      }
-    );
+      );
     }
 
     const unsubscribe = onAuthStateChanged(auth, setup);
