@@ -10,7 +10,8 @@ const DEVICE_TOKEN_ENDPOINT = `${CORE_API_BASE}/notifications/device-token`;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
