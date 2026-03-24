@@ -1,10 +1,13 @@
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import Constants from "expo-constants";
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 
-import { CORE_API_BASE, DEFAULT_TENANT_ID } from '@/config/auth';
-import { getStoredAuthContext, refreshAuthContextWithFirebase } from '@/services/auth';
+import { CORE_API_BASE, DEFAULT_TENANT_ID } from "@/config/auth";
+import {
+  getStoredAuthContext,
+  refreshAuthContextWithFirebase,
+} from "@/services/auth";
 
 const DEVICE_TOKEN_ENDPOINT = `${CORE_API_BASE}/notifications/device-token`;
 
@@ -17,19 +20,19 @@ Notifications.setNotificationHandler({
   }),
 });
 
-if (Platform.OS === 'android') {
-  Notifications.setNotificationChannelAsync('default', {
-    name: 'HyWork',
+if (Platform.OS === "android") {
+  Notifications.setNotificationChannelAsync("default", {
+    name: "HyWork",
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#F97316',
+    lightColor: "#F97316",
   });
 }
 
-function getNotificationPlatform(): 'ANDROID' | 'IOS' | 'WEB' {
-  if (Platform.OS === 'android') return 'ANDROID';
-  if (Platform.OS === 'ios') return 'IOS';
-  return 'WEB';
+function getNotificationPlatform(): "ANDROID" | "IOS" | "WEB" {
+  if (Platform.OS === "android") return "ANDROID";
+  if (Platform.OS === "ios") return "IOS";
+  return "WEB";
 }
 
 function getDeviceInfo(): Record<string, string | null> {
@@ -43,15 +46,15 @@ function getDeviceInfo(): Record<string, string | null> {
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (!Device.isDevice) return false;
+  if (!Device.isDevice && !__DEV__) return false;
   const { status: existing } = await Notifications.getPermissionsAsync();
-  if (existing === 'granted') return true;
+  if (existing === "granted") return true;
   const { status } = await Notifications.requestPermissionsAsync();
-  return status === 'granted';
+  return status === "granted";
 }
 
 export async function getPushToken(): Promise<string | null> {
-  if (!Device.isDevice) return null;
+  if (!Device.isDevice && !__DEV__) return null;
   const granted = await requestNotificationPermission();
   if (!granted) return null;
   try {
@@ -84,17 +87,17 @@ export async function registerTokenWithBackend(token: string): Promise<void> {
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${context.token}`,
-    'Content-Type': 'application/json',
-    'x-tenant-id': tenantId,
+    "Content-Type": "application/json",
+    "x-tenant-id": tenantId,
   };
-  if (context.collabId) headers['x-collab-id'] = context.collabId;
+  if (context.collabId) headers["x-collab-id"] = context.collabId;
 
   const res = await fetch(DEVICE_TOKEN_ENDPOINT, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: JSON.stringify({ token, platform, device_info }),
   });
   if (!res.ok && __DEV__) {
-    console.warn('[Push] registerToken failed:', res.status, await res.text());
+    console.warn("[Push] registerToken failed:", res.status, await res.text());
   }
 }
