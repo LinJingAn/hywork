@@ -5,8 +5,8 @@ import { Platform } from "react-native";
 
 import { CORE_API_BASE, DEFAULT_TENANT_ID } from "@/config/auth";
 import {
-  getStoredAuthContext,
-  refreshAuthContextWithFirebase,
+    getStoredAuthContext,
+    refreshAuthContextWithFirebase,
 } from "@/services/auth";
 
 const DEVICE_TOKEN_ENDPOINT = `${CORE_API_BASE}/notifications/device-token`;
@@ -46,7 +46,6 @@ function getDeviceInfo(): Record<string, string | null> {
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (!Device.isDevice && !__DEV__) return false;
   const { status: existing } = await Notifications.getPermissionsAsync();
   if (existing === "granted") return true;
   const { status } = await Notifications.requestPermissionsAsync();
@@ -54,7 +53,6 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 export async function getPushToken(): Promise<string | null> {
-  if (!Device.isDevice && !__DEV__) return null;
   const granted = await requestNotificationPermission();
   if (!granted) return null;
   try {

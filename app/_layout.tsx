@@ -1,15 +1,16 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import * as WebBrowser from 'expo-web-browser';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import { onAuthStateChanged } from 'firebase/auth';
+import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { PushNotificationsInit } from '@/components/push-notifications-init';
+import { auth } from '@/config/firebase';
 import { NotificationsProvider, useNotifications } from '@/contexts/notifications-context';
 import { ProfileNameProvider } from '@/contexts/profile-name-context';
-import { auth } from '@/config/firebase';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -26,6 +27,17 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const router = useRouter();
+  const hasRedirected = useRef(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && !hasRedirected.current) {
+        hasRedirected.current = true;
+        router.replace('/success');
+      }
+    });
+    return unsubscribe;
+  }, [router]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
