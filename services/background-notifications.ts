@@ -6,7 +6,7 @@ const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND_NOTIFICATION_TASK';
 TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, ({ data, error }) => {
   if (error) {
     if (__DEV__) console.warn('[Push] Background task error:', error);
-    return;
+    return Promise.resolve();
   }
   if (data) {
     const { notification } = data as {
@@ -19,6 +19,7 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, ({ data, error }) => {
       );
     }
   }
+  return Promise.resolve();
 });
 
 export function registerBackgroundNotificationTask() {

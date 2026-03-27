@@ -6,17 +6,17 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import { auth } from '@/config/firebase';
 import { DEFAULT_TENANT_ID } from '@/config/auth';
-import { generateAutoLoginUrl } from '@/services/auto-login';
+import { auth } from '@/config/firebase';
 import { getStoredAuthContext, refreshAuthContextWithFirebase } from '@/services/auth';
+import { generateAutoLoginUrl } from '@/services/auto-login';
 
 interface AutoLoginWebViewProps {
   domainUrl: string;
@@ -87,30 +87,38 @@ export function AutoLoginWebView({
       /* optional */
     }
 
-    try {
-      if (__DEV__) {
-        console.log('[AutoLogin] Chamando generate...');
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (__DEV__) {
+          console.log(`[AutoLogin] Chamando generate... (attempt ${attempt})`);
+        }
+        const result = await generateAutoLoginUrl({
+          email,
+          domainUrl,
+          redirectUrl,
+          tenantId,
+          idToken: idToken ?? undefined,
+        });
+        if (__DEV__) {
+          console.log('[AutoLogin] Generate OK, abrindo WebView...');
+        }
+        setLoginUrl(result.loginUrl);
+        setLoading(false);
+        return;
+      } catch (err) {
+        if (__DEV__) {
+          console.warn(`[AutoLogin] Attempt ${attempt} failed:`, err);
+        }
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          const msg = err instanceof Error ? err.message : 'Falha ao gerar link de auto-login.';
+          setError(msg);
+        }
       }
-      const result = await generateAutoLoginUrl({
-        email,
-        domainUrl,
-        redirectUrl,
-        tenantId,
-        idToken: idToken ?? undefined,
-      });
-      if (__DEV__) {
-        console.log('[AutoLogin] Generate OK, abrindo WebView...');
-      }
-      setLoginUrl(result.loginUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Falha ao gerar link de auto-login.';
-      setError(msg);
-      if (__DEV__) {
-        console.warn('[AutoLogin] Erro:', err);
-      }
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, [domainUrl, redirectUrl, requireAuth]);
 
   useEffect(() => {

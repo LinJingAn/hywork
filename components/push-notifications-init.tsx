@@ -5,12 +5,13 @@ import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { auth } from '@/config/firebase';
+import { registerBackgroundNotificationTask } from '@/services/background-notifications';
+import { getNotificationTapTarget } from '@/services/notification-navigation';
 import {
   getPushToken,
   registerTokenWithBackend,
   requestNotificationPermission,
 } from '@/services/push-notifications';
-import { registerBackgroundNotificationTask } from '@/services/background-notifications';
 
 export type OnNotificationReceived = () => void;
 
@@ -69,35 +70,13 @@ export function PushNotificationsInit({
             unknown
           >;
           onReceivedRef.current?.();
-
-          const url = data?.url;
-          if (typeof url === 'string' && url.startsWith('/')) {
-            router.push(url as never);
-            return;
-          }
-
-          const route = data?.route ?? data?.screen;
-          if (typeof route === 'string' && route.startsWith('/')) {
-            router.push(route as never);
-          } else if (data?.type === 'news' && data?.newsId) {
-            router.push({
-              pathname: '/notifications',
-              params: { highlight: String(data.newsId) },
-            } as never);
-          } else if (data?.slug) {
-            router.push({
-              pathname: '/contents',
-              params: { slug: String(data.slug) },
-            } as never);
-          } else {
-            router.push('/notifications');
-          }
+          router.push(getNotificationTapTarget(data) as never);
         }
       );
     }
 
+    // Firebase invokes this listener immediately with the current user — no extra setup() call.
     const unsubscribe = onAuthStateChanged(auth, setup);
-    setup(auth.currentUser);
 
     return () => {
       unsubscribe();

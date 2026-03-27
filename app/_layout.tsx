@@ -1,4 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
@@ -10,6 +11,7 @@ import 'react-native-reanimated';
 import { PushNotificationsInit } from '@/components/push-notifications-init';
 import { auth } from '@/config/firebase';
 import { NotificationsProvider, useNotifications } from '@/contexts/notifications-context';
+import { getNotificationTapTarget } from '@/services/notification-navigation';
 import { ProfileNameProvider } from '@/contexts/profile-name-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -30,13 +32,40 @@ export default function RootLayout() {
   const hasRedirected = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && !hasRedirected.current) {
+    if (Platform.OS === 'web') {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user && !hasRedirected.current) {
+          hasRedirected.current = true;
+          router.replace('/success');
+        }
+      });
+      return unsubscribe;
+    }
+
+    let cancelled = false;
+    let authUnsub: (() => void) | undefined;
+
+    (async () => {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      if (cancelled) return;
+
+      const launchFromNotification = response
+        ? getNotificationTapTarget(
+            response.notification.request.content.data as Record<string, unknown>
+          )
+        : null;
+
+      authUnsub = onAuthStateChanged(auth, (user) => {
+        if (!user || hasRedirected.current) return;
         hasRedirected.current = true;
-        router.replace('/success');
-      }
-    });
-    return unsubscribe;
+        router.replace((launchFromNotification ?? '/success') as never);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      authUnsub?.();
+    };
   }, [router]);
 
   useEffect(() => {
