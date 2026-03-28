@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import { auth } from '@/config/firebase';
 import { registerBackgroundNotificationTask } from '@/services/background-notifications';
 import { getNotificationTapTarget } from '@/services/notification-navigation';
+import { shouldSuppressNotificationResponseNavigation } from '@/services/notification-open-dedup';
 import {
   getPushToken,
   registerTokenWithBackend,
@@ -65,12 +66,17 @@ export function PushNotificationsInit({
 
       responseRef.current = Notifications.addNotificationResponseReceivedListener(
         (response) => {
+          if (shouldSuppressNotificationResponseNavigation()) {
+            return;
+          }
           const data = response.notification.request.content.data as Record<
             string,
             unknown
           >;
           onReceivedRef.current?.();
-          router.push(getNotificationTapTarget(data) as never);
+          queueMicrotask(() => {
+            router.push(getNotificationTapTarget(data) as never);
+          });
         }
       );
     }
