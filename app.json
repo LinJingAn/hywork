@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "HyWork",
-    "slug": "HyWork",
+    "slug": "hywork",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -61,8 +61,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "fd4fdbe3-7f1f-419e-a8ed-944c5bbb78fd"
+        "projectId": "cacc8617-e3fd-42ed-8e6f-475a7c0e172f"
       }
-    }
+    },
+    "owner": "jinganlin76"
   }
 }

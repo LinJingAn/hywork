@@ -3,7 +3,7 @@
  * Validates Firebase idToken and returns Bearer token + tenantId + collabId
  */
 const AUTH_API_BASE =
-  'https://hw-cloud-authenticator-1cd72b9a454a.herokuapp.com';
+  "https://hw-cloud-authenticator-1cd72b9a454a.herokuapp.com";
 
 export const AUTH_API = {
   login: `${AUTH_API_BASE}/auth/login`,
@@ -18,23 +18,25 @@ export const AUTH_API = {
  */
 export const MICROSOFT_AUTH_PAGE_URL: string =
   process.env?.EXPO_PUBLIC_MICROSOFT_AUTH_PAGE_URL?.trim() ||
-  'https://cloud---homolog.web.app/auth/microsoft.html';
+  "https://cloud---homolog.web.app/auth/microsoft.html";
 
 /**
  * Core API base URL per API Documentation (NEXT_PUBLIC_API_CORE_URL_PROD)
  * All requests require: Authorization: Bearer <token>, x-tenant-id: <tenantId>
  */
-export const CORE_API_BASE = 'https://api-core.hywork.cloud';
+export const CORE_API_BASE = "https://api-core.hywork.cloud";
 
 /**
  * Fallback tenant id when Auth API does not return tenant.
  * Set EXPO_PUBLIC_DEFAULT_TENANT_ID in .env, or set YOUR_TENANT_ID below.
  */
-const YOUR_TENANT_ID = ''; // Set your tenant UUID here if you get "Tenant ID não encontrado"
+const YOUR_TENANT_ID = ""; // Set your tenant UUID here if you get "Tenant ID não encontrado"
 
 export const DEFAULT_TENANT_ID: string | null =
-  (process.env?.EXPO_PUBLIC_DEFAULT_TENANT_ID?.trim() || null) ||
-  (YOUR_TENANT_ID?.trim() || null) ||
+  process.env?.EXPO_PUBLIC_DEFAULT_TENANT_ID?.trim() ||
+  null ||
+  YOUR_TENANT_ID?.trim() ||
+  null ||
   null;
 
 /**
@@ -43,4 +45,10 @@ export const DEFAULT_TENANT_ID: string | null =
  */
 export const WEBVIEW_DOMAIN_URL: string =
   process.env?.EXPO_PUBLIC_WEBVIEW_DOMAIN_URL?.trim() ||
-  'https://meu.hywork.cloud';
+  "https://meu.hywork.cloud";
+
+export const WEB_NOTIFICATIONS_PATH: string =
+  process.env?.EXPO_PUBLIC_WEB_NOTIFICATIONS_PATH?.trim() || "/notifications";
+
+export const WEB_NOTICIAS_PATH_PREFIX: string =
+  process.env?.EXPO_PUBLIC_WEB_NOTICIAS_PATH_PREFIX?.trim() || "/noticias";

@@ -1,5 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useCallback, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,6 +12,25 @@ import { WEBVIEW_DOMAIN_URL } from '@/config/auth';
 const REDIRECT_HOME = process.env.EXPO_PUBLIC_WEBVIEW_REDIRECT_HOME ?? '/';
 
 export default function SuccessScreen() {
+  const params = useLocalSearchParams<{ webRedirect?: string | string[] }>();
+  const webRedirectParam = params.webRedirect;
+  const webRedirectFromRoute =
+    typeof webRedirectParam === 'string'
+      ? webRedirectParam
+      : Array.isArray(webRedirectParam)
+        ? webRedirectParam[0]
+        : undefined;
+
+  const redirectUrl = useMemo(() => {
+    if (
+      typeof webRedirectFromRoute === 'string' &&
+      webRedirectFromRoute.startsWith('/')
+    ) {
+      return webRedirectFromRoute;
+    }
+    return REDIRECT_HOME;
+  }, [webRedirectFromRoute]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = useCallback(() => setMenuOpen(true), []);
@@ -23,8 +43,9 @@ export default function SuccessScreen() {
       <View style={styles.webContainer}>
         {WEBVIEW_DOMAIN_URL ? (
           <AutoLoginWebView
+            key={redirectUrl}
             domainUrl={WEBVIEW_DOMAIN_URL}
-            redirectUrl={REDIRECT_HOME}
+            redirectUrl={redirectUrl}
             style={styles.webView}
           />
         ) : (
