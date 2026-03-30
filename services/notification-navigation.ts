@@ -26,44 +26,93 @@ function pathFromAbsoluteWorkspaceUrl(urlString: string): string | null {
   }
 }
 
-export function getNotificationTapTarget(
+const NESTED_PAYLOAD_KEYS = [
+  "metadata",
+  "data",
+  "payload",
+  "news",
+  "content",
+  "entity",
+  "resource",
+  "notification",
+] as const;
+
+export function resolveWebRedirectPathFromPayload(
   data: Record<string, unknown> | undefined,
-): Href {
-  if (!data) {
-    return successWithWebPath(WEB_NOTIFICATIONS_PATH);
+): string | null {
+  if (!data) return null;
+
+  const leaf = tryResolvePathFromSingleRecord(data);
+  if (leaf) return leaf;
+
+  for (const key of NESTED_PAYLOAD_KEYS) {
+    const nested = data[key];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const p = resolveWebRedirectPathFromPayload(
+        nested as Record<string, unknown>,
+      );
+      if (p) return p;
+    }
   }
 
+  return null;
+}
+
+function tryResolvePathFromSingleRecord(
+  data: Record<string, unknown>,
+): string | null {
   const webRedirect = data.webRedirect ?? data.web_path;
   if (typeof webRedirect === "string" && webRedirect.startsWith("/")) {
-    return successWithWebPath(webRedirect);
+    return webRedirect;
   }
 
-  const pathField = data.path;
+  const pathField = data.path ?? data.url_path;
   if (typeof pathField === "string" && pathField.startsWith("/")) {
-    return successWithWebPath(pathField);
+    return pathField;
   }
 
   const route = data.route ?? data.screen;
   if (typeof route === "string" && route.startsWith("/")) {
-    return successWithWebPath(route);
+    return route;
   }
 
-  const url = data.url;
+  const url =
+    data.url ??
+    data.link ??
+    data.href ??
+    data.action_url ??
+    data.actionUrl ??
+    data.deep_link ??
+    data.deepLink ??
+    data.target_url;
   if (typeof url === "string") {
     if (url.startsWith("/")) {
-      return successWithWebPath(url);
+      return url;
     }
     const fromAbsolute = pathFromAbsoluteWorkspaceUrl(url);
     if (fromAbsolute) {
-      return successWithWebPath(fromAbsolute);
+      return fromAbsolute;
     }
   }
 
-  if (typeof data.slug === "string" && data.slug.trim().length > 0) {
-    const slug = data.slug.trim();
+  const slug =
+    (typeof data.slug === "string" && data.slug) ||
+    (typeof data.news_slug === "string" && data.news_slug) ||
+    (typeof data.newsSlug === "string" && data.newsSlug) ||
+    null;
+  if (slug && slug.trim().length > 0) {
+    const s = slug.trim();
     const prefix = WEB_NOTICIAS_PATH_PREFIX.replace(/\/$/, "") || "/noticias";
-    return successWithWebPath(`${prefix}/${encodeURIComponent(slug)}`);
+    return `${prefix}/${encodeURIComponent(s)}`;
   }
 
-  return successWithWebPath(WEB_NOTIFICATIONS_PATH);
+  return null;
+}
+
+export function getNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): Href {
+  return successWithWebPath(
+    resolveWebRedirectPathFromPayload(data) ?? WEB_NOTIFICATIONS_PATH,
+  );
 }
