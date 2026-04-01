@@ -12,9 +12,8 @@ export const AUTH_API = {
 } as const;
 
 /**
- * URL of the hosted page that runs the Microsoft OAuth redirect flow.
- * Deploy auth-page/auth/microsoft.html to Firebase Hosting at /auth/microsoft.html
- * (e.g. public dir = auth-page) and set EXPO_PUBLIC_MICROSOFT_AUTH_PAGE_URL if needed.
+ * Hosted page for Microsoft OAuth (Firebase Auth redirect + custom token for the app).
+ * If you see Firebase "Site Not Found", run `firebase deploy --only hosting` (see auth-page/README.md).
  */
 export const MICROSOFT_AUTH_PAGE_URL: string =
   process.env?.EXPO_PUBLIC_MICROSOFT_AUTH_PAGE_URL?.trim() ||
@@ -52,3 +51,7 @@ export const WEB_NOTIFICATIONS_PATH: string =
 
 export const WEB_NOTICIAS_PATH_PREFIX: string =
   process.env?.EXPO_PUBLIC_WEB_NOTICIAS_PATH_PREFIX?.trim() || "/noticias";
+
+/** Resolve relative avatar URLs from the Core API (profile thumb, etc.). */
+export const MEDIA_BASE_URL: string =
+  process.env?.EXPO_PUBLIC_MEDIA_BASE_URL?.trim() || WEBVIEW_DOMAIN_URL;

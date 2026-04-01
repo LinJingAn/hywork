@@ -445,50 +445,73 @@ export async function activateWithPassword(
   return { email: trimmedEmail };
 }
 
+/**
+ * Extracts Firebase custom token from `hywork://auth-success?token=...` (query or fragment).
+ */
+export function extractCustomTokenFromAuthRedirectUrl(url: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const normalized = url.includes('://')
+      ? url
+      : `hywork://auth-success${url.startsWith('?') ? url : `?${url}`}`;
+    const parsed = new URL(normalized);
+    const q = parsed.searchParams.get('token');
+    if (q) return decodeURIComponent(q.replace(/\+/g, ' '));
+  } catch {
+    /* fall through */
+  }
+  const match = url.match(/(?:[?&#])token=([^&#]+)/);
+  return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
+}
+
 export async function loginWithMicrosoft(): Promise<void> {
   if (Platform.OS === 'web') {
     const provider = new OAuthProvider('microsoft.com');
     const credential = await signInWithPopup(auth, provider);
     const idToken = await credential.user.getIdToken();
-    await callAuthApi(AUTH_API.microsoft, idToken);
+    await callAuthApi(AUTH_API.login, idToken);
     return;
   }
 
-  const redirectUrl = 'hywork://auth-success';
-  const result = await WebBrowser.openAuthSessionAsync(
-    MICROSOFT_AUTH_PAGE_URL,
-    redirectUrl
-  );
+  WebBrowser.maybeCompleteAuthSession();
 
-  if (result.type !== 'success' || !result.url) {
+  const redirectUrl = 'hywork://auth-success';
+  const authPageUrl = `${MICROSOFT_AUTH_PAGE_URL}${MICROSOFT_AUTH_PAGE_URL.includes('?') ? '&' : '?'}_app_ts=${Date.now()}`;
+
+  const result = await WebBrowser.openAuthSessionAsync(authPageUrl, redirectUrl, {
+    preferEphemeralSession: false,
+  });
+
+  if (result.type === 'cancel' || result.type === 'dismiss') {
     const err = new Error('Login cancelado.') as Error & { code?: string };
     err.code = 'auth/popup-closed-by-user';
     throw err;
   }
 
-  const token = getTokenFromAuthSuccessUrl(result.url);
-  if (!token) {
+  if (result.type !== 'success' || !result.url) {
+    if (__DEV__) {
+      console.warn('[Microsoft] openAuthSessionAsync result:', result.type, result);
+    }
     const err = new Error(
-      'Não foi possível obter o token. Confira se a página de login Microsoft está publicada (auth-page/README.md).'
+      'Não foi possível concluir o login Microsoft. Tente novamente.'
     ) as Error & { code?: string };
     err.code = 'auth/invalid-credential';
     throw err;
   }
 
-  await signInWithCustomToken(auth, token);
-
-  const user = auth.currentUser;
-  if (user) {
-    const idToken = await user.getIdToken();
-    await callAuthApi(AUTH_API.microsoft, idToken);
+  const token = extractCustomTokenFromAuthRedirectUrl(result.url);
+  if (!token) {
+    if (__DEV__) {
+      console.warn('[Microsoft] No token in redirect URL:', result.url);
+    }
+    const err = new Error(
+      'Não foi possível obter o token. Verifique a página Microsoft (Firebase redirect, Cloud Function exchangeToken) e o esquema hywork:// no app.'
+    ) as Error & { code?: string };
+    err.code = 'auth/invalid-credential';
+    throw err;
   }
-}
 
-function getTokenFromAuthSuccessUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.searchParams.get('token');
-  } catch {
-    return null;
-  }
+  const credential = await signInWithCustomToken(auth, token);
+  const idToken = await credential.user.getIdToken();
+  await callAuthApi(AUTH_API.login, idToken);
 }

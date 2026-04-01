@@ -28,29 +28,38 @@
     var EXCHANGE_TOKEN_URL = 'https://us-central1-cloud---homolog.cloudfunctions.net/exchangeToken';
 
     auth.getRedirectResult().then(function(result) {
-      if (result.user) {
+      if (result && result.user) {
         result.user.getIdToken().then(function(idToken) {
           fetch(EXCHANGE_TOKEN_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ idToken: idToken })
-          }).then(function(res) { return res.json(); }).then(function(data) {
-            var token = data.customToken || data.token;
-            if (token) {
+          }).then(function(res) {
+            return res.json().then(function(data) {
+              return { ok: res.ok, status: res.status, data: data };
+            });
+          }).then(function(r) {
+            var data = r.data;
+            var token = data && (data.customToken || data.token);
+            if (r.ok && token) {
               window.location.href = 'hywork://auth-success?token=' + encodeURIComponent(token);
             } else {
-              document.getElementById('msg').textContent = 'Erro ao obter token. Tente novamente.';
+              var err = (data && (data.error || data.message)) || ('HTTP ' + r.status);
+              document.getElementById('msg').textContent = 'Erro ao obter token: ' + err + '. Verifique exchangeToken.';
             }
           }).catch(function() {
-            document.getElementById('msg').textContent = 'Erro de conexão. Verifique se a Cloud Function está publicada.';
+            document.getElementById('msg').textContent = 'Erro de conexão. Verifique se a Cloud Function exchangeToken está publicada.';
           });
+        }).catch(function(e) {
+          document.getElementById('msg').textContent = 'Erro ao obter idToken: ' + (e && e.message ? e.message : 'falha');
         });
         return;
       }
       var provider = new firebase.auth.OAuthProvider('microsoft.com');
+      provider.setCustomParameters({ prompt: 'select_account' });
       auth.signInWithRedirect(provider);
     }).catch(function(err) {
-      document.getElementById('msg').textContent = 'Erro: ' + (err.message || 'Tente novamente.');
+      document.getElementById('msg').textContent = 'Erro: ' + (err && err.message ? err.message : 'Tente novamente.');
     });
   </script>
 </body>

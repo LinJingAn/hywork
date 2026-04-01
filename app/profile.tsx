@@ -1,11 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ImageStyle, StyleProp } from 'react-native';
 import {
   ActivityIndicator,
-  Dimensions,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,9 +15,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CORE_API_BASE, DEFAULT_TENANT_ID } from '@/config/auth';
+import {
+  CORE_API_BASE,
+  DEFAULT_TENANT_ID,
+  MEDIA_BASE_URL,
+} from '@/config/auth';
 import { auth } from '@/config/firebase';
-import { AccountDropdownMenu, GreetingBar } from '@/components/app-header';
+import { AccountDropdownMenu } from '@/components/app-header';
 import { useProfileName } from '@/contexts/profile-name-context';
 import { SideDrawer } from '@/components/side-drawer';
 import {
@@ -25,24 +29,40 @@ import {
   refreshAuthContextWithFirebase,
 } from '@/services/auth';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
 const AUTH_TENANT_ID_KEY = '@hywork/tenant_id';
 
-const TABS = ['Tudo sobre mim', 'Depoimentos'] as const;
-
+const HEADER_PINK = '#EC4899';
+const TAB_TEAL = '#0D9488';
 const PROFILE_AVATAR_SIZE = 100;
 const HEADER_HEIGHT = 180;
+
+type ProfileTabId = 'about' | 'testimonials';
+
+function firstNameFromFullName(fullName: string): string {
+  const p = fullName.trim().split(/\s+/).filter(Boolean);
+  return p[0] ?? '';
+}
 
 interface ProfileApiResponse {
   id: string;
   name: string;
   email: string;
   thumb?: string | null;
+  thumbnail?: string | null;
+  avatar_url?: string | null;
+  photo_url?: string | null;
+  photo?: string | null;
   description?: string | null;
   phone?: string | null;
   birthday?: string | null;
   hire_date?: string | null;
+  job_title?: string | null;
+  jobTitle?: string | null;
+  position?: string | null;
+  occupation?: string | null;
+  role_name?: string | null;
+  department?: string | { name?: string | null } | null;
+  department_name?: string | null;
   access_level?:
     | {
         name?: string | null;
@@ -50,9 +70,19 @@ interface ProfileApiResponse {
     | null;
   organizational_structures?:
     | {
+        id?: string | null;
         name?: string | null;
+        type?: string | null;
+        thumb?: string | null;
+        thumbnail?: string | null;
+        logo?: string | null;
+        abbreviation?: string | null;
+        short_name?: string | null;
+        initials?: string | null;
+        sigla?: string | null;
       }[]
     | null;
+  occupations?: unknown[] | null;
 }
 
 interface TestimonialApiResponse {
@@ -69,21 +99,45 @@ interface TestimonialApiResponse {
     | null;
 }
 
+interface ProfileGroup {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  initials: string;
+}
+
 interface ProfileViewData {
   name: string;
-  role: string;
+  jobTitle: string;
+  department: string;
   organization: string;
+  groups: ProfileGroup[];
   email: string;
   admissionDate: string;
   birthday: string;
   phone: string;
   bio: string;
+  avatarUrl: string | null;
+}
+
+function parseCalendarDateLocal(isoDate?: string | null): Date | null {
+  if (!isoDate || typeof isoDate !== 'string') return null;
+  const t = isoDate.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    const date = new Date(y, mo, d);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(t);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDate(isoDate?: string | null): string {
-  if (!isoDate) return '';
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseCalendarDateLocal(isoDate);
+  if (!date) return '';
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = String(date.getFullYear());
@@ -91,37 +145,226 @@ function formatDate(isoDate?: string | null): string {
 }
 
 function formatBirthday(isoDate?: string | null): string {
-  if (!isoDate) return '';
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseCalendarDateLocal(isoDate);
+  if (!date) return '';
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   return `${day}/${month}`;
 }
 
-function formatDateTime(isoDate?: string | null): string {
-  if (!isoDate) return '';
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return '';
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = String(date.getFullYear());
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${day}/${month}/${year} às ${hours}:${minutes}`;
+type ImageAuth = {
+  token: string;
+  tenantId: string | null;
+  collabId: string | null;
+  userId?: string | null;
+};
+
+function resolveMediaUrl(
+  raw: string | null | undefined,
+  baseUrl: string
+): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const t = raw.trim();
+  if (!t) return null;
+  if (t.startsWith('http://') || t.startsWith('https://')) return t;
+  if (t.startsWith('//')) return `https:${t}`;
+  if (t.startsWith('data:')) return t;
+  const origin = baseUrl.replace(/\/+$/, '');
+  const coreOrigin = CORE_API_BASE.replace(/\/+$/, '');
+  if (t.startsWith('/')) {
+    if (/^\/(uploads|media|files|storage|static|assets)\b/i.test(t)) {
+      return `${coreOrigin}${t}`;
+    }
+    return `${origin}${t}`;
+  }
+  return `${origin}/${t}`;
 }
 
-function mapProfileToView(profile: ProfileApiResponse | null): ProfileViewData {
+function shouldAttachAuthHeaders(uri: string): boolean {
+  try {
+    const h = new URL(uri).hostname.toLowerCase();
+    return h.endsWith('hywork.cloud') || h.endsWith('hywork.com');
+  } catch {
+    return false;
+  }
+}
+
+function buildAuthenticatedImageSource(
+  uri: string,
+  auth: ImageAuth | null | undefined
+): { uri: string; headers?: Record<string, string> } {
+  if (!auth?.token) return { uri };
+  if (!shouldAttachAuthHeaders(uri)) return { uri };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${auth.token}`,
+  };
+  if (auth.tenantId) headers['x-tenant-id'] = auth.tenantId;
+  if (auth.collabId) headers['x-collab-id'] = auth.collabId;
+  if (auth.userId) headers['x-user-id'] = auth.userId;
+  return { uri, headers };
+}
+
+function extractAvatarUrlFromProfile(
+  profile: ProfileApiResponse | null
+): string | null {
+  if (!profile) return null;
+  const raw = profile as unknown as Record<string, unknown>;
+  const tryStr = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v.trim() : null;
+  const candidates: unknown[] = [
+    profile.thumb,
+    profile.thumbnail,
+    profile.avatar_url,
+    profile.photo_url,
+    profile.photo,
+    raw.thumbnail,
+    raw.picture,
+    raw.image,
+    raw.image_url,
+    raw.profile_picture,
+    raw.profilePicture,
+  ];
+  for (const c of candidates) {
+    const s = tryStr(c);
+    if (s) return s;
+  }
+  return null;
+}
+
+function normalizeAvatarUrl(
+  profile: ProfileApiResponse | null,
+  baseUrl: string
+): string | null {
+  const raw = extractAvatarUrlFromProfile(profile);
+  if (!raw) return null;
+  return resolveMediaUrl(raw, baseUrl);
+}
+
+function extractGroupImageUrl(s: Record<string, unknown>): string | null {
+  const keys = [
+    'thumb',
+    'thumbnail',
+    'logo',
+    'avatar_url',
+    'photo_url',
+    'image',
+    'image_url',
+  ];
+  for (const k of keys) {
+    const v = s[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+function initialsForGroup(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) {
+    const w = parts[0];
+    return w.length >= 2 ? w.slice(0, 2).toUpperCase() : w[0].toUpperCase();
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function mapStructuresToGroups(
+  structures: ProfileApiResponse['organizational_structures'],
+  baseUrl: string
+): ProfileGroup[] {
+  if (!structures?.length) return [];
+  return structures
+    .map((entry, i) => {
+      const s = entry as unknown as Record<string, unknown>;
+      const name =
+        (typeof entry?.name === 'string' && entry.name.trim()) ||
+        (typeof s.name === 'string' && s.name.trim()) ||
+        '';
+      const thumbRaw = extractGroupImageUrl(s);
+      const logoUrl = thumbRaw ? resolveMediaUrl(thumbRaw, baseUrl) : null;
+      const sigla =
+        (typeof s.abbreviation === 'string' && s.abbreviation.trim()) ||
+        (typeof s.short_name === 'string' && s.short_name.trim()) ||
+        (typeof s.initials === 'string' && s.initials.trim()) ||
+        (typeof s.sigla === 'string' && s.sigla.trim()) ||
+        '';
+      const initials =
+        sigla.length >= 1
+          ? sigla.replace(/\s+/g, '').slice(0, 2).toUpperCase()
+          : initialsForGroup(name);
+      const id =
+        (typeof s.id === 'string' && s.id) || `org-${i}-${name || 'g'}`;
+      return { id, name, logoUrl, initials };
+    })
+    .filter((g) => g.name.length > 0);
+}
+
+function departmentFromOccupation(occ: Record<string, unknown> | null): string {
+  if (!occ) return '';
+  const d = occ.department;
+  if (typeof d === 'string' && d.trim()) return d.trim();
+  if (d && typeof d === 'object' && typeof (d as { name?: string }).name === 'string') {
+    return (d as { name: string }).name.trim();
+  }
+  const dn = occ.department_name;
+  if (typeof dn === 'string' && dn.trim()) return dn.trim();
+  return '';
+}
+
+function titleFromOccupation(occ: Record<string, unknown> | null): string {
+  if (!occ) return '';
+  for (const key of ['title', 'position', 'name', 'job_title', 'role_name']) {
+    const v = occ[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+function departmentFromTypedStructures(
+  structures: ProfileApiResponse['organizational_structures']
+): string {
+  if (!structures?.length) return '';
+  const isGroup = (typeRaw: string | null | undefined) => {
+    const t = (typeRaw ?? '').toString().toLowerCase().trim();
+    return /\b(group|grupo|company|empresa|tenant|matriz)\b/.test(t);
+  };
+  const isDept = (typeRaw: string | null | undefined) => {
+    const t = (typeRaw ?? '').toString().toLowerCase().trim();
+    if (!t || isGroup(t)) return false;
+    return /\b(department|departamento|setor|área|area|division|unidade|product|produto)\b/.test(
+      t
+    );
+  };
+  const typed = structures.filter((s) => s?.type && isDept(s.type));
+  const names = (typed.length ? typed : [])
+    .map((s) => (typeof s?.name === 'string' ? s.name.trim() : ''))
+    .filter(Boolean);
+  if (names.length) return names.join(' | ');
+  const anyType = structures.some((s) => (s?.type ?? '').toString().trim());
+  if (!anyType) return '';
+  const nonGroup = structures.filter((s) => !isGroup(s?.type));
+  return nonGroup
+    .map((s) => (typeof s?.name === 'string' ? s.name.trim() : ''))
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function mapProfileToView(
+  profile: ProfileApiResponse | null,
+  occupationRecord: Record<string, unknown> | null
+): ProfileViewData {
   if (!profile) {
     return {
       name: '',
-      role: '',
+      jobTitle: '',
+      department: '',
       organization: '',
+      groups: [],
       email: '',
       admissionDate: '',
       birthday: '',
       phone: '',
       bio: '',
+      avatarUrl: null,
     };
   }
 
@@ -131,42 +374,135 @@ function mapProfileToView(profile: ProfileApiResponse | null): ProfileViewData {
       .filter(Boolean)
       .join(' | ') ?? '';
 
-  const role =
-    (typeof profile.access_level === 'object' &&
-      profile.access_level?.name) ||
-    '';
+  const accessName =
+    typeof profile.access_level === 'object' && profile.access_level?.name
+      ? profile.access_level.name
+      : '';
+
+  const occDept = departmentFromOccupation(occupationRecord);
+  const occTitle = titleFromOccupation(occupationRecord);
+
+  let departmentFromProfile = '';
+  if (typeof profile.department === 'string') {
+    departmentFromProfile = profile.department.trim();
+  } else if (
+    profile.department &&
+    typeof profile.department === 'object' &&
+    typeof profile.department.name === 'string'
+  ) {
+    departmentFromProfile = profile.department.name.trim();
+  } else if (typeof profile.department_name === 'string') {
+    departmentFromProfile = profile.department_name.trim();
+  }
+
+  const raw = profile as unknown as Record<string, unknown>;
+  if (!departmentFromProfile && typeof raw.departamento === 'string') {
+    departmentFromProfile = raw.departamento.trim();
+  }
+
+  const departmentProfileSanitized =
+    departmentFromProfile &&
+    organizationNames &&
+    departmentFromProfile.trim() === organizationNames.trim()
+      ? ''
+      : departmentFromProfile;
+
+  const department =
+    departmentProfileSanitized ||
+    occDept ||
+    departmentFromTypedStructures(profile.organizational_structures);
+
+  const jobTitle =
+    occTitle ||
+    (typeof profile.job_title === 'string' && profile.job_title.trim()) ||
+    (typeof profile.jobTitle === 'string' && profile.jobTitle.trim()) ||
+    (typeof profile.position === 'string' && profile.position.trim()) ||
+    (typeof profile.occupation === 'string' && profile.occupation.trim()) ||
+    (typeof profile.role_name === 'string' && profile.role_name.trim()) ||
+    (accessName ? String(accessName).trim() : '');
 
   return {
     name: profile.name ?? '',
-    role,
+    jobTitle,
+    department,
     organization: organizationNames,
+    groups: mapStructuresToGroups(profile.organizational_structures, MEDIA_BASE_URL),
     email: profile.email ?? '',
     admissionDate: formatDate(profile.hire_date),
     birthday: formatBirthday(profile.birthday),
     phone: profile.phone ?? '',
     bio: profile.description ?? '',
+    avatarUrl: normalizeAvatarUrl(profile, MEDIA_BASE_URL),
   };
 }
 
-function ProfileHeader() {
+function initialsForPersonName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) {
+    const w = parts[0];
+    return w.length >= 2 ? w.slice(0, 2).toUpperCase() : w[0].toUpperCase();
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function ProfileHeader({
+  name,
+  avatarUrl,
+  imageAuth,
+  onBack,
+  onMenuPress,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  imageAuth: ImageAuth | null;
+  onBack: () => void;
+  onMenuPress: () => void;
+}) {
+  const initials = initialsForPersonName(name || 'Colaborador');
+  const source =
+    avatarUrl != null
+      ? buildAuthenticatedImageSource(avatarUrl, imageAuth)
+      : null;
+
   return (
     <View style={styles.headerContainer}>
-      <LinearGradient
-        colors={['#F472B6', '#EC4899', '#DB2777']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradientHeader}
-      >
+      <View style={styles.gradientHeader}>
         <View style={styles.headerNav}>
-          <View style={styles.backButton} />
-          <Text style={styles.headerTitle}>Perfil</Text>
-          <View style={styles.backButton} />
+          <Pressable
+            style={styles.backButton}
+            onPress={onBack}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
+          >
+            <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+          </Pressable>
+          <View style={styles.headerTitleSpacer} />
+          <Pressable
+            style={styles.backButton}
+            onPress={onMenuPress}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Menu da conta"
+          >
+            <MaterialIcons name="more-vert" size={24} color="#FFFFFF" />
+          </Pressable>
         </View>
-      </LinearGradient>
+      </View>
 
       <View style={styles.avatarContainer}>
         <View style={styles.avatarPlaceholder}>
-          <MaterialIcons name="person" size={48} color="#9CA3AF" />
+          {source ? (
+            <Image
+              source={source}
+              style={styles.avatarImage as StyleProp<ImageStyle>}
+              contentFit="cover"
+              transition={200}
+            />
+          ) : (
+            <Text style={styles.avatarInitials}>{initials}</Text>
+          )}
         </View>
       </View>
     </View>
@@ -222,11 +558,13 @@ function AboutTab({
       <View style={styles.infoRow}>
         <View style={styles.infoHalf}>
           <Text style={styles.infoLabel}>Data de Admissão</Text>
-          <Text style={styles.infoValue}>{profile.admissionDate}</Text>
+          <Text style={styles.infoValue}>
+            {profile.admissionDate || '—'}
+          </Text>
         </View>
         <View style={styles.infoHalf}>
           <Text style={styles.infoLabel}>Data de Aniversário</Text>
-          <Text style={styles.infoValue}>{profile.birthday}</Text>
+          <Text style={styles.infoValue}>{profile.birthday || '—'}</Text>
         </View>
       </View>
 
@@ -239,6 +577,72 @@ function AboutTab({
             'Adicione uma descrição ao seu perfil para que sua equipe conheça mais sobre você.'}
         </Text>
       </View>
+
+      <View style={styles.eventsSection}>
+        <Text style={styles.sectionTitle}>Evento do colaborador na empresa</Text>
+        <Text style={styles.eventsPlaceholder}>
+          Em breve você verá aqui os eventos relacionados ao seu percurso na
+          empresa.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const TESTIMONIAL_PREVIEW_LINES = 4;
+
+function TestimonialCardItem({
+  t,
+  profileDisplayName,
+}: {
+  t: TestimonialApiResponse;
+  profileDisplayName: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const authorName =
+    (t.from && typeof t.from === 'object' && t.from?.name) || 'Colaborador';
+  const message =
+    (t.message && t.message.trim()) ||
+    (t.text && t.text.trim()) ||
+    (t.content && t.content.trim()) ||
+    '';
+  const needsReadMore = message.length > 140;
+
+  return (
+    <View style={styles.testimonialCard}>
+      <View style={styles.testimonialBadge}>
+        <MaterialIcons name="favorite" size={14} color="#DB2777" />
+        <Text style={styles.testimonialBadgeText}>Depoimento</Text>
+      </View>
+      <Text style={styles.testimonialCardTitle}>
+        {profileDisplayName} ganhou um novo depoimento de:
+      </Text>
+      <View style={styles.testimonialAuthorRow}>
+        <View style={styles.testimonialAvatar}>
+          <Text style={styles.testimonialAvatarText}>
+            {authorName.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <Text style={styles.testimonialAuthor}>{authorName}</Text>
+      </View>
+      {message ? (
+        <Text
+          style={styles.testimonialMessage}
+          numberOfLines={expanded ? undefined : TESTIMONIAL_PREVIEW_LINES}
+        >
+          {message}
+        </Text>
+      ) : null}
+      {message && (needsReadMore || expanded) ? (
+        <Pressable
+          style={styles.readMoreButton}
+          onPress={() => setExpanded((e) => !e)}
+        >
+          <Text style={styles.readMoreText}>
+            {expanded ? 'Mostrar menos' : 'Leia mais'}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -248,11 +652,13 @@ function TestimonialsTab({
   loading,
   error,
   onRetry,
+  profileDisplayName,
 }: {
   testimonials: TestimonialApiResponse[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  profileDisplayName: string;
 }) {
   if (loading) {
     return (
@@ -288,44 +694,20 @@ function TestimonialsTab({
 
   return (
     <View style={styles.tabContent}>
-      {testimonials.map((t) => {
-        const authorName =
-          (t.from && typeof t.from === 'object' && t.from?.name) || 'Colaborador';
-        const rawDate = t.created_at ?? t.createdAt ?? null;
-        const formattedDate = formatDateTime(rawDate);
-        const message =
-          (t.message && t.message.trim()) ||
-          (t.text && t.text.trim()) ||
-          (t.content && t.content.trim()) ||
-          '';
-
-        return (
-          <View key={t.id} style={styles.testimonialCard}>
-            <View style={styles.testimonialHeader}>
-              <View style={styles.testimonialAvatar}>
-                <Text style={styles.testimonialAvatarText}>
-                  {authorName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <View style={styles.testimonialHeaderText}>
-                <Text style={styles.testimonialAuthor}>{authorName}</Text>
-                {formattedDate ? (
-                  <Text style={styles.testimonialDate}>{formattedDate}</Text>
-                ) : null}
-              </View>
-            </View>
-            {message ? (
-              <Text style={styles.testimonialMessage}>{message}</Text>
-            ) : null}
-          </View>
-        );
-      })}
+      {testimonials.map((t) => (
+        <TestimonialCardItem
+          key={t.id}
+          t={t}
+          profileDisplayName={profileDisplayName}
+        />
+      ))}
     </View>
   );
 }
 
 export default function ProfileScreen() {
-  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>(TABS[0]);
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<ProfileTabId>('about');
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileApiData, setProfileApiData] = useState<ProfileApiResponse | null>(
@@ -337,16 +719,31 @@ export default function ProfileScreen() {
   const [testimonials, setTestimonials] = useState<TestimonialApiResponse[]>([]);
   const [testimonialsLoading, setTestimonialsLoading] = useState(false);
   const [testimonialsError, setTestimonialsError] = useState<string | null>(null);
+  const [occupationRecord, setOccupationRecord] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [imageAuth, setImageAuth] = useState<ImageAuth | null>(null);
 
   const openMenu = useCallback(() => setMenuOpen(true), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  }, [router]);
 
   const viewData = useMemo(
-    () => mapProfileToView(profileApiData),
-    [profileApiData]
+    () => mapProfileToView(profileApiData, occupationRecord),
+    [profileApiData, occupationRecord]
   );
+
+  const aboutTabLabel = useMemo(() => {
+    const first = firstNameFromFullName(viewData.name);
+    return first ? `Tudo sobre ${first}` : 'Tudo sobre mim';
+  }, [viewData.name]);
+
+  const profileDisplayName = viewData.name.trim() || 'Colaborador';
 
   const { setProfileName } = useProfileName();
   useEffect(() => {
@@ -358,11 +755,13 @@ export default function ProfileScreen() {
     setLoading(true);
     setError(null);
     setTestimonialsError(null);
+    setOccupationRecord(null);
     try {
       const context = await getStoredAuthContext();
       if (!context?.token) {
         setError('Sessão inválida. Faça login novamente para ver o perfil.');
         setProfileApiData(null);
+        setImageAuth(null);
         return;
       }
 
@@ -385,6 +784,7 @@ export default function ProfileScreen() {
 
       let collabIdForTestimonials: string | null = context.collabId ?? null;
       let resolvedTenantId = context.tenantId || DEFAULT_TENANT_ID;
+      let resolvedUserId = context.userId ?? null;
 
       if (!collabIdForTestimonials || !resolvedTenantId) {
         if (auth.currentUser) {
@@ -395,9 +795,17 @@ export default function ProfileScreen() {
             if (resolvedTenantId) headers['x-tenant-id'] = resolvedTenantId;
             if (refreshed.collabId) headers['x-collab-id'] = refreshed.collabId;
             if (refreshed.userId) headers['x-user-id'] = refreshed.userId;
+            if (refreshed.userId) resolvedUserId = refreshed.userId;
           }
         }
       }
+
+      setImageAuth({
+        token: context.token,
+        tenantId: resolvedTenantId ?? null,
+        collabId: collabIdForTestimonials ?? null,
+        userId: resolvedUserId,
+      });
 
       let endpoint: string;
       if (collabIdForTestimonials) {
@@ -415,6 +823,7 @@ export default function ProfileScreen() {
             : 'Tenant não configurado. Configure DEFAULT_TENANT_ID ou faça login novamente.'
         );
         setProfileApiData(null);
+        setImageAuth(null);
         return;
       }
 
@@ -465,6 +874,7 @@ export default function ProfileScreen() {
 
         setError(message || 'Erro ao carregar dados do perfil.');
         setProfileApiData(null);
+        setImageAuth(null);
         return;
       }
 
@@ -474,6 +884,34 @@ export default function ProfileScreen() {
         tenant?: { id?: string; tenantId?: string; tenant_id?: string };
       };
       setProfileApiData(data);
+
+      const collabForOccupation = data.id ?? collabIdForTestimonials;
+      if (collabForOccupation) {
+        try {
+          const occRes = await fetch(
+            `${CORE_API_BASE}/collabs/${encodeURIComponent(
+              collabForOccupation
+            )}/occupations/current`,
+            { method: 'GET', headers }
+          );
+          if (occRes.ok) {
+            const occJson: unknown = await occRes.json();
+            let occ: Record<string, unknown> | null = null;
+            if (Array.isArray(occJson) && occJson[0] && typeof occJson[0] === 'object') {
+              occ = occJson[0] as Record<string, unknown>;
+            } else if (occJson && typeof occJson === 'object') {
+              const o = occJson as Record<string, unknown>;
+              occ =
+                o.data && typeof o.data === 'object'
+                  ? (o.data as Record<string, unknown>)
+                  : o;
+            }
+            setOccupationRecord(occ);
+          }
+        } catch {
+          /* optional enrichment */
+        }
+      }
 
       const possibleTenantId =
         (typeof data.tenantId === 'string' && data.tenantId) ||
@@ -538,6 +976,8 @@ export default function ProfileScreen() {
       const err = e as Error;
       setError(err.message || 'Erro inesperado ao carregar o perfil.');
       setProfileApiData(null);
+      setOccupationRecord(null);
+      setImageAuth(null);
     } finally {
       setLoading(false);
     }
@@ -558,11 +998,6 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <GreetingBar
-        onDotPress={openMenu}
-        displayName={viewData.name || undefined}
-        showBackButton
-      />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
@@ -571,39 +1006,58 @@ export default function ProfileScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <ProfileHeader />
+        <ProfileHeader
+          name={viewData.name || 'Colaborador'}
+          avatarUrl={viewData.avatarUrl}
+          imageAuth={imageAuth}
+          onBack={handleBack}
+          onMenuPress={openMenu}
+        />
 
         <View style={styles.nameSection}>
           <Text style={styles.profileName}>
             {viewData.name || 'Colaborador'}
           </Text>
-          {viewData.role ? (
-            <Text style={styles.profileRole}>{viewData.role}</Text>
+          {viewData.jobTitle ? (
+            <Text style={styles.profileRole}>{viewData.jobTitle}</Text>
           ) : null}
         </View>
 
         <View style={styles.tabBar}>
-          {TABS.map((tab) => (
-            <Pressable
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
+          <Pressable
+            style={[styles.tab, activeTab === 'about' && styles.tabActive]}
+            onPress={() => setActiveTab('about')}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === 'about' && styles.tabTextActive,
+              ]}
             >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === tab && styles.tabTextActive,
-                ]}
-              >
-                {tab}
-              </Text>
-            </Pressable>
-          ))}
+              {aboutTabLabel}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === 'testimonials' && styles.tabActive,
+            ]}
+            onPress={() => setActiveTab('testimonials')}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === 'testimonials' && styles.tabTextActive,
+              ]}
+            >
+              Depoimentos
+            </Text>
+          </Pressable>
         </View>
 
         <View style={styles.divider} />
 
-        {activeTab === TABS[0] ? (
+        {activeTab === 'about' ? (
           <AboutTab profile={viewData} loading={loading} error={error} />
         ) : (
           <TestimonialsTab
@@ -611,6 +1065,7 @@ export default function ProfileScreen() {
             loading={testimonialsLoading}
             error={testimonialsError}
             onRetry={loadProfile}
+            profileDisplayName={profileDisplayName}
           />
         )}
       </ScrollView>
@@ -635,23 +1090,22 @@ const styles = StyleSheet.create({
   gradientHeader: {
     height: HEADER_HEIGHT,
     paddingTop: 16,
+    backgroundColor: HEADER_PINK,
   },
   headerNav: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
+  },
+  headerTitleSpacer: {
+    flex: 1,
   },
   backButton: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   avatarContainer: {
     position: 'absolute',
@@ -669,6 +1123,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  avatarImage: {
+    width: PROFILE_AVATAR_SIZE - 8,
+    height: PROFILE_AVATAR_SIZE - 8,
+    borderRadius: (PROFILE_AVATAR_SIZE - 8) / 2,
+  },
+  avatarInitials: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
 
   nameSection: {
     paddingHorizontal: 24,
@@ -682,7 +1146,8 @@ const styles = StyleSheet.create({
   profileRole: {
     fontSize: 15,
     color: '#6B7280',
-    marginTop: 2,
+    marginTop: 4,
+    fontWeight: '500',
   },
 
   tabBar: {
@@ -696,7 +1161,7 @@ const styles = StyleSheet.create({
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: '#1F2937',
+    borderBottomColor: TAB_TEAL,
   },
   tabText: {
     fontSize: 14,
@@ -704,7 +1169,7 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
   },
   tabTextActive: {
-    color: '#1F2937',
+    color: TAB_TEAL,
     fontWeight: '600',
   },
   divider: {
@@ -754,7 +1219,7 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 15,
     color: '#1F2937',
-    fontWeight: '500',
+    fontWeight: '700',
   },
   infoRow: {
     flexDirection: 'row',
@@ -764,6 +1229,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  eventsPlaceholder: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
   aboutSection: {
     marginTop: 12,
   },
@@ -900,12 +1371,38 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  testimonialHeader: {
+  testimonialBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#FCE7F3',
+    marginBottom: 12,
+  },
+  testimonialBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#BE185D',
+  },
+  testimonialCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
+    lineHeight: 22,
+  },
+  testimonialAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
   },
   testimonialAvatar: {
     width: 36,
@@ -914,29 +1411,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   testimonialAvatarText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#111827',
   },
-  testimonialHeaderText: {
-    marginLeft: 10,
-  },
   testimonialAuthor: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  testimonialDate: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#6B7280',
+    fontWeight: '700',
+    color: '#1F2937',
   },
   testimonialMessage: {
-    marginTop: 4,
     fontSize: 14,
-    lineHeight: 20,
-    color: '#374151',
+    lineHeight: 22,
+    color: '#4B5563',
+  },
+  readMoreButton: {
+    alignSelf: 'flex-end',
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+  },
+  readMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
   },
 });
