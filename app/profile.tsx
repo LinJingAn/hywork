@@ -159,6 +159,15 @@ type ImageAuth = {
   userId?: string | null;
 };
 
+const PROTECTED_MEDIA_PATH_RE =
+  /\/(collabs|collaborators|avatars?|thumb|thumbnail|uploads|media|files|storage)\b/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isProtectedMediaPath(pathname: string): boolean {
+  return PROTECTED_MEDIA_PATH_RE.test(pathname);
+}
+
 function resolveMediaUrl(
   raw: string | null | undefined,
   baseUrl: string
@@ -171,19 +180,33 @@ function resolveMediaUrl(
   if (t.startsWith('data:')) return t;
   const origin = baseUrl.replace(/\/+$/, '');
   const coreOrigin = CORE_API_BASE.replace(/\/+$/, '');
+  if (UUID_RE.test(t)) {
+    return `${coreOrigin}/files/${encodeURIComponent(t)}`;
+  }
   if (t.startsWith('/')) {
-    if (/^\/(uploads|media|files|storage|static|assets)\b/i.test(t)) {
+    if (isProtectedMediaPath(t)) {
       return `${coreOrigin}${t}`;
     }
     return `${origin}${t}`;
+  }
+  if (isProtectedMediaPath(`/${t}`)) {
+    return `${coreOrigin}/${t}`;
   }
   return `${origin}/${t}`;
 }
 
 function shouldAttachAuthHeaders(uri: string): boolean {
   try {
-    const h = new URL(uri).hostname.toLowerCase();
-    return h.endsWith('hywork.cloud') || h.endsWith('hywork.com');
+    const url = new URL(uri);
+    const protocol = url.protocol.toLowerCase();
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+
+    const host = url.hostname.toLowerCase();
+    const coreHost = new URL(CORE_API_BASE).hostname.toLowerCase();
+    const mediaHost = new URL(MEDIA_BASE_URL).hostname.toLowerCase();
+    if (host === coreHost || host === mediaHost) return true;
+    if (host.endsWith('hywork.cloud') || host.endsWith('hywork.com')) return true;
+    return isProtectedMediaPath(url.pathname);
   } catch {
     return false;
   }
@@ -211,20 +234,62 @@ function extractAvatarUrlFromProfile(
   const raw = profile as unknown as Record<string, unknown>;
   const tryStr = (v: unknown): string | null =>
     typeof v === 'string' && v.trim() ? v.trim() : null;
+  const fromObj = (v: unknown): string | null => {
+    if (!v || typeof v !== 'object') return null;
+    const o = v as Record<string, unknown>;
+    const directKeys = [
+      'url',
+      'uri',
+      'src',
+      'href',
+      'path',
+      'location',
+      'key',
+      'filename',
+      'thumb',
+      'thumbnail',
+      'avatar',
+      'avatar_url',
+      'photo',
+      'photo_url',
+      'image',
+      'image_url',
+    ];
+    for (const k of directKeys) {
+      const s = tryStr(o[k]);
+      if (s) return s;
+    }
+    const nestedKeys = ['file', 'asset', 'media', 'image', 'thumb', 'thumbnail'];
+    for (const k of nestedKeys) {
+      const nested = o[k];
+      const s = fromObj(nested);
+      if (s) return s;
+    }
+    return null;
+  };
   const candidates: unknown[] = [
-    profile.thumb,
     profile.thumbnail,
+    profile.thumb,
     profile.avatar_url,
     profile.photo_url,
     profile.photo,
     raw.thumbnail,
+    raw.thumb,
+    raw.avatar,
+    raw.avatarFile,
+    raw.avatar_file,
     raw.picture,
+    raw.photo,
     raw.image,
+    raw.file,
+    raw.media,
     raw.image_url,
     raw.profile_picture,
     raw.profilePicture,
   ];
   for (const c of candidates) {
+    const fromObject = fromObj(c);
+    if (fromObject) return fromObject;
     const s = tryStr(c);
     if (s) return s;
   }
@@ -935,6 +1000,12 @@ export default function ProfileScreen() {
       if (!collabIdForTestimonials) {
         collabIdForTestimonials = data.id ?? null;
       }
+      setImageAuth({
+        token: context.token,
+        tenantId: possibleTenantId ?? resolvedTenantId ?? null,
+        collabId: collabIdForTestimonials ?? null,
+        userId: resolvedUserId,
+      });
 
       if (collabIdForTestimonials) {
         setTestimonialsLoading(true);
