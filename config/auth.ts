@@ -15,9 +15,10 @@ export const AUTH_API = {
  * Hosted page for Microsoft OAuth (Firebase Auth redirect + custom token for the app).
  * If you see Firebase "Site Not Found", run `firebase deploy --only hosting` (see auth-page/README.md).
  */
+/** Use firebaseapp.com host so OAuth return matches authDomain (fewer redirect/session issues than web.app). */
 export const MICROSOFT_AUTH_PAGE_URL: string =
   process.env?.EXPO_PUBLIC_MICROSOFT_AUTH_PAGE_URL?.trim() ||
-  "https://cloud---homolog.web.app/auth/microsoft.html";
+  "https://cloud---homolog.firebaseapp.com/auth/microsoft.html";
 
 /**
  * Core API base URL per API Documentation (NEXT_PUBLIC_API_CORE_URL_PROD)

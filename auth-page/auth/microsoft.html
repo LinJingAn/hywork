@@ -13,6 +13,7 @@
 </head>
 <body>
   <p class="msg" id="msg">Redirecionando para Microsoft…</p>
+  <p id="hint" style="display:none; color:#94a3b8; font-size:13px; max-width:320px; text-align:center; margin-top:12px;"></p>
   <script>
     var firebaseConfig = {
       apiKey: 'AIzaSyCXX8I21MDAN2bFbJ0jcTcagjpL8cxrq2g',
@@ -26,40 +27,122 @@
     var auth = firebase.auth();
 
     var EXCHANGE_TOKEN_URL = 'https://us-central1-cloud---homolog.cloudfunctions.net/exchangeToken';
+    var REDIRECT_FLAG = 'hywork_ms_oauth_started';
 
-    auth.getRedirectResult().then(function(result) {
-      if (result && result.user) {
-        result.user.getIdToken().then(function(idToken) {
-          fetch(EXCHANGE_TOKEN_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken: idToken })
-          }).then(function(res) {
-            return res.json().then(function(data) {
-              return { ok: res.ok, status: res.status, data: data };
-            });
-          }).then(function(r) {
-            var data = r.data;
-            var token = data && (data.customToken || data.token);
-            if (r.ok && token) {
-              window.location.href = 'hywork://auth-success?token=' + encodeURIComponent(token);
-            } else {
-              var err = (data && (data.error || data.message)) || ('HTTP ' + r.status);
-              document.getElementById('msg').textContent = 'Erro ao obter token: ' + err + '. Verifique exchangeToken.';
-            }
-          }).catch(function() {
-            document.getElementById('msg').textContent = 'Erro de conexão. Verifique se a Cloud Function exchangeToken está publicada.';
+    function looksLikeFirebaseAuthReturn() {
+      var s = window.location.search || '';
+      var h = window.location.hash || '';
+      var t = s + h;
+      return (
+        /[?&#](apiKey|mode|oobCode|authType)=/i.test(t) ||
+        /__\/auth\/handler/i.test(t)
+      );
+    }
+
+    function setMsg(t) {
+      var el = document.getElementById('msg');
+      if (el) el.textContent = t;
+    }
+    function setHint(t) {
+      var el = document.getElementById('hint');
+      if (!el) return;
+      if (t) {
+        el.style.display = 'block';
+        el.textContent = t;
+      } else {
+        el.style.display = 'none';
+        el.textContent = '';
+      }
+    }
+
+    var exchangeStarted = false;
+
+    function runExchangeWithUser(user) {
+      if (!user || exchangeStarted) return;
+      exchangeStarted = true;
+      setMsg('Concluindo login…');
+      sessionStorage.removeItem(REDIRECT_FLAG);
+      user.getIdToken().then(function(idToken) {
+        fetch(EXCHANGE_TOKEN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: idToken })
+        }).then(function(res) {
+          return res.json().then(function(data) {
+            return { ok: res.ok, status: res.status, data: data };
           });
-        }).catch(function(e) {
-          document.getElementById('msg').textContent = 'Erro ao obter idToken: ' + (e && e.message ? e.message : 'falha');
+        }).then(function(r) {
+          var data = r.data;
+          var token = data && (data.customToken || data.token);
+          if (r.ok && token) {
+            window.location.href = 'hywork://auth-success?token=' + encodeURIComponent(token);
+          } else {
+            var err = (data && (data.error || data.message)) || ('HTTP ' + r.status);
+            setMsg('Erro ao obter token: ' + err + '. Verifique exchangeToken.');
+          }
+        }).catch(function() {
+          setMsg('Erro de conexão. Verifique se a Cloud Function exchangeToken está publicada.');
         });
+      }).catch(function(e) {
+        setMsg('Erro ao obter idToken: ' + (e && e.message ? e.message : 'falha'));
+      });
+    }
+
+    function waitForUserThenFailIfStillMissing() {
+      var waited = 0;
+      var iv = setInterval(function() {
+        waited += 200;
+        if (auth.currentUser) {
+          clearInterval(iv);
+          runExchangeWithUser(auth.currentUser);
+          return;
+        }
+        if (waited >= 5000) {
+          clearInterval(iv);
+          if (!exchangeStarted && (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn())) {
+            sessionStorage.removeItem(REDIRECT_FLAG);
+            setMsg('Não foi possível concluir o login neste navegador.');
+            setHint('Tente de novo, limpe dados do site para este domínio, ou use outro navegador. Confirme também o redirect no Azure e domínios autorizados no Firebase.');
+          }
+        }
+      }, 200);
+    }
+
+    // Helps redirect round-trip survive in more browsers; required for getRedirectResult() after Microsoft.
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(function() {
+      return auth.getRedirectResult();
+    }).then(function(result) {
+      if (result && result.user) {
+        runExchangeWithUser(result.user);
         return;
       }
+
+      // getRedirectResult can be empty while Firebase still applies session — listen for user.
+      var unsub = auth.onAuthStateChanged(function(user) {
+        if (user && (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn())) {
+          unsub();
+          runExchangeWithUser(user);
+        }
+      });
+
+      if (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn()) {
+        waitForUserThenFailIfStillMissing();
+        return;
+      }
+
+      sessionStorage.setItem(REDIRECT_FLAG, '1');
       var provider = new firebase.auth.OAuthProvider('microsoft.com');
       provider.setCustomParameters({ prompt: 'select_account' });
+      setMsg('Redirecionando para Microsoft…');
       auth.signInWithRedirect(provider);
     }).catch(function(err) {
-      document.getElementById('msg').textContent = 'Erro: ' + (err && err.message ? err.message : 'Tente novamente.');
+      sessionStorage.removeItem(REDIRECT_FLAG);
+      if (err && err.code === 'auth/account-exists-with-different-credential') {
+        setMsg('Este e-mail já possui conta com outro método de login (por exemplo, senha).');
+        setHint('No app, use o login com e-mail e senha, ou peça ao administrador para vincular o provedor Microsoft a este usuário no Firebase (Authentication → usuário → Adicionar provedor).');
+        return;
+      }
+      setMsg('Erro: ' + (err && err.message ? err.message : 'Tente novamente.'));
     });
   </script>
 </body>

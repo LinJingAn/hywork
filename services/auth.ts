@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import {
   OAuthProvider,
@@ -336,7 +337,7 @@ async function callAuthApi(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
     });
-  } catch (e) {
+  } catch {
     const err = new Error(
       'Verifique sua conexão e tente novamente.'
     ) as Error & { code?: string };
@@ -464,6 +465,52 @@ export function extractCustomTokenFromAuthRedirectUrl(url: string): string | nul
   return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
 }
 
+function waitForMicrosoftCustomTokenFromDeepLink(
+  authPageUrl: string,
+  timeoutMs: number
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let sub: { remove: () => void } | undefined;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sub?.remove();
+    };
+
+    const tryUrl = (url: string | null) => {
+      if (!url || !url.includes('auth-success')) return;
+      const token = extractCustomTokenFromAuthRedirectUrl(url);
+      if (token) {
+        cleanup();
+        resolve(token);
+      }
+    };
+
+    timer = setTimeout(() => {
+      if (!settled) {
+        cleanup();
+        const err = new Error(
+          'Tempo esgotado ao aguardar retorno do login Microsoft.'
+        ) as Error & { code?: string };
+        err.code = 'auth/timeout';
+        reject(err);
+      }
+    }, timeoutMs);
+
+    sub = Linking.addEventListener('url', ({ url }) => tryUrl(url));
+    void Linking.getInitialURL().then((url) => tryUrl(url));
+
+    void Linking.openURL(authPageUrl).catch((err) => {
+      cleanup();
+      reject(err);
+    });
+  });
+}
+
 export async function loginWithMicrosoft(): Promise<void> {
   if (Platform.OS === 'web') {
     const provider = new OAuthProvider('microsoft.com');
@@ -475,43 +522,14 @@ export async function loginWithMicrosoft(): Promise<void> {
 
   WebBrowser.maybeCompleteAuthSession();
 
-  const redirectUrl = 'hywork://auth-success';
   const authPageUrl = `${MICROSOFT_AUTH_PAGE_URL}${MICROSOFT_AUTH_PAGE_URL.includes('?') ? '&' : '?'}_app_ts=${Date.now()}`;
 
-  const result = await WebBrowser.openAuthSessionAsync(authPageUrl, redirectUrl, {
-    preferEphemeralSession: false,
-  });
+  const customToken = await waitForMicrosoftCustomTokenFromDeepLink(
+    authPageUrl,
+    15 * 60 * 1000
+  );
 
-  if (result.type === 'cancel' || result.type === 'dismiss') {
-    const err = new Error('Login cancelado.') as Error & { code?: string };
-    err.code = 'auth/popup-closed-by-user';
-    throw err;
-  }
-
-  if (result.type !== 'success' || !result.url) {
-    if (__DEV__) {
-      console.warn('[Microsoft] openAuthSessionAsync result:', result.type, result);
-    }
-    const err = new Error(
-      'Não foi possível concluir o login Microsoft. Tente novamente.'
-    ) as Error & { code?: string };
-    err.code = 'auth/invalid-credential';
-    throw err;
-  }
-
-  const token = extractCustomTokenFromAuthRedirectUrl(result.url);
-  if (!token) {
-    if (__DEV__) {
-      console.warn('[Microsoft] No token in redirect URL:', result.url);
-    }
-    const err = new Error(
-      'Não foi possível obter o token. Verifique a página Microsoft (Firebase redirect, Cloud Function exchangeToken) e o esquema hywork:// no app.'
-    ) as Error & { code?: string };
-    err.code = 'auth/invalid-credential';
-    throw err;
-  }
-
-  const credential = await signInWithCustomToken(auth, token);
+  const credential = await signInWithCustomToken(auth, customToken);
   const idToken = await credential.user.getIdToken();
   await callAuthApi(AUTH_API.login, idToken);
 }
