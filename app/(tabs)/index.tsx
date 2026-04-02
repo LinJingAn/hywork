@@ -22,7 +22,7 @@ import { auth } from '@/config/firebase';
 import { isNewUser, loginWithEmail, loginWithMicrosoft } from '@/services/auth';
 
 const INVALID_CREDENTIAL_MESSAGE =
-  'Não foi possível fazer login. Verifique se o e-mail e a senha estão corretos, ou crie uma nova conta.';
+  'Não foi possível efetuar o login. Verifique se seu e-mail e senha estão corretos.';
 
 const NEW_USER_SIGNUP_MESSAGE =
   'Você é novo por aqui. Vamos levá-lo à página de cadastro.';
@@ -74,8 +74,7 @@ export default function HomeScreen() {
         code === 'auth/wrong-password'
       ) {
         Alert.alert('Erro no login', INVALID_CREDENTIAL_MESSAGE, [
-          { text: 'Tentar novamente', style: 'cancel' },
-          { text: 'Criar conta', onPress: () => router.replace({ pathname: '/signup', params: { email: trimmedEmail } }) },
+          { text: 'Tentar novamente' },
         ]);
         return;
       }
