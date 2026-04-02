@@ -1,12 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 
-import { CORE_API_BASE, DEFAULT_TENANT_ID } from '@/config/auth';
+import { CORE_API_BASE, DEFAULT_TENANT_ID, MEDIA_BASE_URL } from '@/config/auth';
 import { auth } from '@/config/firebase';
 import { getStoredAuthContext, refreshAuthContextWithFirebase } from '@/services/auth';
+import type { ImageAuth, ProfileApiResponse } from '@/utils/profile-avatar';
+import { normalizeAvatarUrl } from '@/utils/profile-avatar';
 
 interface ProfileNameContextValue {
   profileName: string;
+  profileAvatarUrl: string | null;
+  profileImageAuth: ImageAuth | null;
   setProfileName: (name: string) => void;
   refreshProfileName: () => Promise<void>;
 }
@@ -18,16 +22,23 @@ export function useProfileName() {
   return (
     ctx ?? {
       profileName: '',
+      profileAvatarUrl: null,
+      profileImageAuth: null,
       setProfileName: () => {},
       refreshProfileName: async () => {},
     }
   );
 }
 
-async function fetchProfileName(): Promise<string> {
+async function fetchProfileSummary(): Promise<{
+  name: string;
+  avatarUrl: string | null;
+  imageAuth: ImageAuth | null;
+}> {
+  const empty = { name: '', avatarUrl: null as string | null, imageAuth: null as ImageAuth | null };
   try {
     const context = await getStoredAuthContext();
-    if (!context?.token) return '';
+    if (!context?.token) return empty;
     let tenantId = context.tenantId ?? DEFAULT_TENANT_ID;
     let collabId = context.collabId ?? null;
     if (!tenantId || !collabId) {
@@ -35,7 +46,7 @@ async function fetchProfileName(): Promise<string> {
       tenantId = refreshed?.tenantId ?? tenantId ?? DEFAULT_TENANT_ID ?? null;
       collabId = refreshed?.collabId ?? collabId ?? null;
     }
-    if (!tenantId) return '';
+    if (!tenantId) return empty;
     const headers: Record<string, string> = {
       Authorization: `Bearer ${context.token}`,
       'x-tenant-id': tenantId,
@@ -48,7 +59,7 @@ async function fetchProfileName(): Promise<string> {
     } else if (auth.currentUser && tenantId) {
       endpoint = `${CORE_API_BASE}/collabs/auth/${encodeURIComponent(auth.currentUser.uid)}`;
     } else {
-      return '';
+      return empty;
     }
     let res = await fetch(endpoint, { method: 'GET', headers });
     if (res.status === 404 && !context.collabId && auth.currentUser && tenantId) {
@@ -70,20 +81,32 @@ async function fetchProfileName(): Promise<string> {
         /* ignore */
       }
     }
-    if (!res.ok) return '';
-    const data = (await res.json()) as { name?: string };
-    return typeof data.name === 'string' ? data.name.trim() : '';
+    if (!res.ok) return empty;
+    const data = (await res.json()) as ProfileApiResponse;
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    const avatarUrl = normalizeAvatarUrl(data, MEDIA_BASE_URL);
+    const imageAuth: ImageAuth = {
+      token: context.token,
+      tenantId,
+      collabId,
+      userId: context.userId ?? null,
+    };
+    return { name, avatarUrl, imageAuth };
   } catch {
-    return '';
+    return empty;
   }
 }
 
 export function ProfileNameProvider({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState('');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+  const [profileImageAuth, setProfileImageAuth] = useState<ImageAuth | null>(null);
 
   const loadProfileName = useCallback(async () => {
-    const name = await fetchProfileName();
+    const { name, avatarUrl, imageAuth } = await fetchProfileSummary();
     if (name) setProfileName(name);
+    setProfileAvatarUrl(avatarUrl);
+    setProfileImageAuth(imageAuth);
   }, []);
 
   const refreshProfileName = useCallback(async () => {
@@ -96,6 +119,8 @@ export function ProfileNameProvider({ children }: { children: React.ReactNode })
         loadProfileName();
       } else {
         setProfileName('');
+        setProfileAvatarUrl(null);
+        setProfileImageAuth(null);
       }
     });
     if (auth.currentUser) {
@@ -105,7 +130,15 @@ export function ProfileNameProvider({ children }: { children: React.ReactNode })
   }, [loadProfileName]);
 
   return (
-    <ProfileNameContext.Provider value={{ profileName, setProfileName, refreshProfileName }}>
+    <ProfileNameContext.Provider
+      value={{
+        profileName,
+        profileAvatarUrl,
+        profileImageAuth,
+        setProfileName,
+        refreshProfileName,
+      }}
+    >
       {children}
     </ProfileNameContext.Provider>
   );
