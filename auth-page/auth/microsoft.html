@@ -1,149 +1,301 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Entrar com Microsoft</title>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
-  <style>
-    body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-    .msg { color: #627D98; }
-  </style>
-</head>
-<body>
-  <p class="msg" id="msg">Redirecionando para Microsoft…</p>
-  <p id="hint" style="display:none; color:#94a3b8; font-size:13px; max-width:320px; text-align:center; margin-top:12px;"></p>
-  <script>
-    var firebaseConfig = {
-      apiKey: 'AIzaSyCXX8I21MDAN2bFbJ0jcTcagjpL8cxrq2g',
-      authDomain: 'cloud---homolog.firebaseapp.com',
-      projectId: 'cloud---homolog',
-      storageBucket: 'cloud---homolog.firebasestorage.app',
-      messagingSenderId: '807635388333',
-      appId: '1:807635388333:web:c200dab7ab043b50780324'
-    };
-    firebase.initializeApp(firebaseConfig);
-    var auth = firebase.auth();
-
-    var EXCHANGE_TOKEN_URL = 'https://us-central1-cloud---homolog.cloudfunctions.net/exchangeToken';
-    var REDIRECT_FLAG = 'hywork_ms_oauth_started';
-
-    function looksLikeFirebaseAuthReturn() {
-      var s = window.location.search || '';
-      var h = window.location.hash || '';
-      var t = s + h;
-      return (
-        /[?&#](apiKey|mode|oobCode|authType)=/i.test(t) ||
-        /__\/auth\/handler/i.test(t)
-      );
-    }
-
-    function setMsg(t) {
-      var el = document.getElementById('msg');
-      if (el) el.textContent = t;
-    }
-    function setHint(t) {
-      var el = document.getElementById('hint');
-      if (!el) return;
-      if (t) {
-        el.style.display = 'block';
-        el.textContent = t;
-      } else {
-        el.style.display = 'none';
-        el.textContent = '';
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entrar com Microsoft</title>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 16px;
+        box-sizing: border-box;
       }
-    }
+      .msg {
+        color: #627d98;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="msg" id="msg">Abrindo Microsoft…</p>
+    <p
+      id="hint"
+      style="
+        display: none;
+        color: #94a3b8;
+        font-size: 13px;
+        max-width: 320px;
+        text-align: center;
+        margin-top: 12px;
+      "
+    ></p>
+    <script>
+      var firebaseConfig = {
+        apiKey: "AIzaSyCXX8I21MDAN2bFbJ0jcTcagjpL8cxrq2g",
+        authDomain: "cloud---homolog.firebaseapp.com",
+        projectId: "cloud---homolog",
+        storageBucket: "cloud---homolog.firebasestorage.app",
+        messagingSenderId: "807635388333",
+        appId: "1:807635388333:web:c200dab7ab043b50780324",
+      };
+      firebase.initializeApp(firebaseConfig);
+      var auth = firebase.auth();
 
-    var exchangeStarted = false;
+      var EXCHANGE_TOKEN_URL =
+        "https://us-central1-cloud---homolog.cloudfunctions.net/exchangeToken";
+      var REDIRECT_FLAG = "hywork_ms_oauth_started";
 
-    function runExchangeWithUser(user) {
-      if (!user || exchangeStarted) return;
-      exchangeStarted = true;
-      setMsg('Concluindo login…');
-      sessionStorage.removeItem(REDIRECT_FLAG);
-      user.getIdToken().then(function(idToken) {
-        fetch(EXCHANGE_TOKEN_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken: idToken })
-        }).then(function(res) {
-          return res.json().then(function(data) {
-            return { ok: res.ok, status: res.status, data: data };
+      var AUTH_DEBUG =
+        /(?:^|[?&])debug=1(?:&|$)/.test(window.location.search || "") ||
+        (typeof localStorage !== "undefined" &&
+          localStorage.getItem("hywork_auth_debug") === "1");
+
+      function logExchange() {
+        var args = ["[hywork microsoft.html]"].concat(
+          Array.prototype.slice.call(arguments),
+        );
+        if (typeof console !== "undefined" && console.log)
+          console.log.apply(console, args);
+      }
+
+      function looksLikeFirebaseAuthReturn() {
+        var s = window.location.search || "";
+        var h = window.location.hash || "";
+        var t = s + h;
+        return (
+          /[?&#](apiKey|mode|oobCode|authType)=/i.test(t) ||
+          /__\/auth\/handler/i.test(t)
+        );
+      }
+
+      function setMsg(t) {
+        var el = document.getElementById("msg");
+        if (el) el.textContent = t;
+      }
+      function setHint(t) {
+        var el = document.getElementById("hint");
+        if (!el) return;
+        if (t) {
+          el.style.display = "block";
+          el.textContent = t;
+        } else {
+          el.style.display = "none";
+          el.textContent = "";
+        }
+      }
+
+      var exchangeStarted = false;
+
+      function postExchangeWithRetry(user, attempt) {
+        var maxAttempts = 4;
+        attempt = attempt || 0;
+        logExchange("postExchange attempt", attempt, "uid", user && user.uid);
+        return user
+          .getIdToken(true)
+          .then(function (idToken) {
+            logExchange("getIdToken ok, length", idToken ? idToken.length : 0);
+            if (AUTH_DEBUG && idToken) {
+              try {
+                var p = JSON.parse(
+                  atob(
+                    idToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"),
+                  ),
+                );
+                logExchange("JWT payload (debug)", {
+                  aud: p.aud,
+                  iss: p.iss,
+                  exp: p.exp,
+                  sign_in_provider: p.firebase && p.firebase.sign_in_provider,
+                });
+              } catch (e) {
+                logExchange("JWT decode (debug) failed", e && e.message);
+              }
+            }
+            return fetch(EXCHANGE_TOKEN_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ idToken: idToken }),
+            }).then(function (res) {
+              return res.text().then(function (text) {
+                var data = {};
+                try {
+                  data = text ? JSON.parse(text) : {};
+                } catch (e) {
+                  data = { _parseError: String(e && e.message) };
+                }
+                logExchange("fetch response", {
+                  status: res.status,
+                  ok: res.ok,
+                  bodyKeys:
+                    data && typeof data === "object" ? Object.keys(data) : [],
+                  error: data.error,
+                });
+                return { ok: res.ok, status: res.status, data: data };
+              });
+            });
+          })
+          .then(function (r) {
+            var data = r.data;
+            var token = data && (data.customToken || data.token);
+            if (r.ok && token) {
+              logExchange("success, redirecting to app");
+              window.location.href =
+                "hywork://auth-success?token=" + encodeURIComponent(token);
+              return;
+            }
+            if (r.status === 401 && attempt + 1 < maxAttempts) {
+              logExchange("401, will retry", attempt + 1);
+              return new Promise(function (resolve) {
+                setTimeout(resolve, 350 + attempt * 300);
+              }).then(function () {
+                return postExchangeWithRetry(user, attempt + 1);
+              });
+            }
+            var errPart =
+              (data && (data.error || data.message)) || "HTTP " + r.status;
+            logExchange("exchange failed (no more retries)", errPart);
+            setMsg(
+              "Erro ao obter token: " + errPart + ". Verifique exchangeToken.",
+            );
           });
-        }).then(function(r) {
-          var data = r.data;
-          var token = data && (data.customToken || data.token);
-          if (r.ok && token) {
-            window.location.href = 'hywork://auth-success?token=' + encodeURIComponent(token);
-          } else {
-            var err = (data && (data.error || data.message)) || ('HTTP ' + r.status);
-            setMsg('Erro ao obter token: ' + err + '. Verifique exchangeToken.');
-          }
-        }).catch(function() {
-          setMsg('Erro de conexão. Verifique se a Cloud Function exchangeToken está publicada.');
+      }
+
+      function runExchangeWithUser(user) {
+        if (!user || exchangeStarted) return;
+        exchangeStarted = true;
+        setMsg("Concluindo login…");
+        sessionStorage.removeItem(REDIRECT_FLAG);
+        postExchangeWithRetry(user, 0).catch(function () {
+          setMsg(
+            "Erro de conexão ao chamar exchangeToken. Verifique rede e se a função está publicada.",
+          );
         });
-      }).catch(function(e) {
-        setMsg('Erro ao obter idToken: ' + (e && e.message ? e.message : 'falha'));
-      });
-    }
+      }
 
-    function waitForUserThenFailIfStillMissing() {
-      var waited = 0;
-      var iv = setInterval(function() {
-        waited += 200;
-        if (auth.currentUser) {
-          clearInterval(iv);
-          runExchangeWithUser(auth.currentUser);
-          return;
-        }
-        if (waited >= 5000) {
-          clearInterval(iv);
-          if (!exchangeStarted && (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn())) {
-            sessionStorage.removeItem(REDIRECT_FLAG);
-            setMsg('Não foi possível concluir o login neste navegador.');
-            setHint('Tente de novo, limpe dados do site para este domínio, ou use outro navegador. Confirme também o redirect no Azure e domínios autorizados no Firebase.');
+      function waitForUserThenFailIfStillMissing() {
+        var waited = 0;
+        var iv = setInterval(function () {
+          waited += 200;
+          if (auth.currentUser) {
+            clearInterval(iv);
+            runExchangeWithUser(auth.currentUser);
+            return;
           }
-        }
-      }, 200);
-    }
-
-    // Helps redirect round-trip survive in more browsers; required for getRedirectResult() after Microsoft.
-    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(function() {
-      return auth.getRedirectResult();
-    }).then(function(result) {
-      if (result && result.user) {
-        runExchangeWithUser(result.user);
-        return;
+          if (waited >= 8000) {
+            clearInterval(iv);
+            if (
+              !exchangeStarted &&
+              (sessionStorage.getItem(REDIRECT_FLAG) ||
+                looksLikeFirebaseAuthReturn())
+            ) {
+              sessionStorage.removeItem(REDIRECT_FLAG);
+              setMsg("Não foi possível concluir o login neste navegador.");
+              setHint(
+                "Tente de novo em Chrome (não WebView), limpe dados do site para este domínio, ou use outro aparelho. Confirme redirect URI no Azure: …/__/auth/handler e domínios autorizados no Firebase.",
+              );
+            }
+          }
+        }, 200);
       }
 
-      // getRedirectResult can be empty while Firebase still applies session — listen for user.
-      var unsub = auth.onAuthStateChanged(function(user) {
-        if (user && (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn())) {
-          unsub();
-          runExchangeWithUser(user);
-        }
-      });
-
-      if (sessionStorage.getItem(REDIRECT_FLAG) || looksLikeFirebaseAuthReturn()) {
-        waitForUserThenFailIfStillMissing();
-        return;
+      function handleAccountExists(err) {
+        setMsg(
+          "Este e-mail já possui conta com outro método de login (por exemplo, senha).",
+        );
+        setHint(
+          "No app, use o login com e-mail e senha, ou peça ao administrador para vincular o provedor Microsoft a este usuário no Firebase (Authentication → usuário → Adicionar provedor).",
+        );
       }
 
-      sessionStorage.setItem(REDIRECT_FLAG, '1');
-      var provider = new firebase.auth.OAuthProvider('microsoft.com');
-      provider.setCustomParameters({ prompt: 'select_account' });
-      setMsg('Redirecionando para Microsoft…');
-      auth.signInWithRedirect(provider);
-    }).catch(function(err) {
-      sessionStorage.removeItem(REDIRECT_FLAG);
-      if (err && err.code === 'auth/account-exists-with-different-credential') {
-        setMsg('Este e-mail já possui conta com outro método de login (por exemplo, senha).');
-        setHint('No app, use o login com e-mail e senha, ou peça ao administrador para vincular o provedor Microsoft a este usuário no Firebase (Authentication → usuário → Adicionar provedor).');
-        return;
+      function tryPopupThenRedirect() {
+        var provider = new firebase.auth.OAuthProvider("microsoft.com");
+        provider.setCustomParameters({ prompt: "select_account" });
+        setMsg("Abrindo janela da Microsoft…");
+        setHint(
+          "Se nada abrir, permita pop-ups para este site; usaremos redirecionamento na próxima etapa.",
+        );
+        return auth
+          .signInWithPopup(provider)
+          .then(function (result) {
+            setHint("");
+            if (result && result.user) runExchangeWithUser(result.user);
+          })
+          .catch(function (err) {
+            var code = err && err.code;
+            if (
+              code === "auth/popup-blocked" ||
+              code === "auth/cancelled-popup-request" ||
+              code === "auth/operation-not-supported-in-this-environment"
+            ) {
+              sessionStorage.setItem(REDIRECT_FLAG, "1");
+              setMsg("Redirecionando para Microsoft…");
+              setHint("");
+              return auth.signInWithRedirect(provider);
+            }
+            if (code === "auth/account-exists-with-different-credential") {
+              handleAccountExists(err);
+              return;
+            }
+            sessionStorage.removeItem(REDIRECT_FLAG);
+            setMsg(
+              "Erro: " +
+                (err && err.message ? err.message : "Tente novamente."),
+            );
+          });
       }
-      setMsg('Erro: ' + (err && err.message ? err.message : 'Tente novamente.'));
-    });
-  </script>
-</body>
+
+      auth
+        .setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(function () {
+          return auth.getRedirectResult();
+        })
+        .then(function (result) {
+          if (result && result.user) {
+            runExchangeWithUser(result.user);
+            return;
+          }
+
+          if (
+            sessionStorage.getItem(REDIRECT_FLAG) ||
+            looksLikeFirebaseAuthReturn()
+          ) {
+            var unsub = auth.onAuthStateChanged(function (user) {
+              if (
+                user &&
+                (sessionStorage.getItem(REDIRECT_FLAG) ||
+                  looksLikeFirebaseAuthReturn())
+              ) {
+                unsub();
+                runExchangeWithUser(user);
+              }
+            });
+            waitForUserThenFailIfStillMissing();
+            return;
+          }
+
+          return tryPopupThenRedirect();
+        })
+        .catch(function (err) {
+          sessionStorage.removeItem(REDIRECT_FLAG);
+          if (
+            err &&
+            err.code === "auth/account-exists-with-different-credential"
+          ) {
+            handleAccountExists(err);
+            return;
+          }
+          setMsg(
+            "Erro: " + (err && err.message ? err.message : "Tente novamente."),
+          );
+        });
+    </script>
+  </body>
 </html>
